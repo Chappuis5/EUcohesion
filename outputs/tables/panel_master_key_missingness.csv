@@ -4,8 +4,9 @@ erdf_eur_pc,0.8054648241
 erdf_eur_pc_l1,0.8230527638
 erdf_eur_pc_l2,0.8405778894
 erdf_eur_pc_l3,0.8592964824
-gdp_pc,0.8587311558
 gdp_pc_growth,0.8769472362
+gdp_pc_pps_growth,0.6094221106
+gdp_pc_real_growth,0.622361809
 gva,0.8522613065
 rd_gerd,0.8548994975
 tertiary_share_25_64,0.7655778894

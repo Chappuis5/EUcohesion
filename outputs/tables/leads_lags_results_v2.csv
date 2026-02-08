@@ -1,0 +1,7 @@
+outcome,model,term,horizon,coef,std_err,t_stat,p_value,ci_95_lower,ci_95_upper,n_obs,n_regions,fe_type,clustering,sample_year_min,sample_year_max,controls_used
+gdp_pc_real_growth,Model Placebo Leads-Lags,erdf_eur_pc_f2,-2,0.007759372329,0.004424732665,1.753636415,0.07949282712,-0.0009129443357,0.01643168899,822,223,year,nuts2,2019,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
+gdp_pc_real_growth,Model Placebo Leads-Lags,erdf_eur_pc_f1,-1,-0.003158512425,0.003610256748,-0.8748719676,0.3816435733,-0.01023448563,0.003917460776,822,223,year,nuts2,2019,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
+gdp_pc_real_growth,Model Placebo Leads-Lags,erdf_eur_pc,0,0.008144114894,0.003956467254,2.058431012,0.03954877731,0.0003895815707,0.01589864822,822,223,year,nuts2,2019,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
+gdp_pc_real_growth,Model Placebo Leads-Lags,erdf_eur_pc_l1,1,0.01648960917,0.005932695055,2.779446612,0.005445160349,0.00486174053,0.02811747781,822,223,year,nuts2,2019,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
+gdp_pc_real_growth,Model Placebo Leads-Lags,erdf_eur_pc_l2,2,0.01124089748,0.005017075454,2.240527891,0.02505667217,0.001407610288,0.02107418468,822,223,year,nuts2,2019,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
+gdp_pc_real_growth,Model Placebo Leads-Lags,erdf_eur_pc_l3,3,0.002270705747,0.003263577671,0.6957719339,0.4865716684,-0.004125788948,0.008667200442,822,223,year,nuts2,2019,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"

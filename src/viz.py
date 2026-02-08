@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
-import numpy as np
 import pandas as pd
 
 
@@ -19,7 +17,7 @@ def _import_matplotlib():
 def plot_dynamic_lag_response(
     lag_effects: pd.DataFrame,
     output_path: Path,
-    title: str = "Dynamic Lag Response of GDP per Capita Growth",
+    title: str = "Dynamic Lag Response",
 ) -> None:
     plt = _import_matplotlib()
 
@@ -91,7 +89,7 @@ def plot_leads_lags_placebo(
     plt.close(fig)
 
 
-def plot_sigma_convergence(
+def plot_sigma_convergence_multi(
     sigma_df: pd.DataFrame,
     output_path: Path,
     period_start: int = 2014,
@@ -107,7 +105,32 @@ def plot_sigma_convergence(
         ax.text(0.5, 0.5, "No sigma convergence data available", ha="center", va="center")
         ax.set_axis_off()
     else:
-        ax.plot(plot_df["year"], plot_df["sigma_log_gdp"], marker="o", linewidth=2, color="#2ca02c")
+        if "sigma_log_gdp_real" in plot_df.columns:
+            ax.plot(
+                plot_df["year"],
+                plot_df["sigma_log_gdp_real"],
+                marker="o",
+                linewidth=2,
+                label="Real GDP pc sigma",
+            )
+        if "sigma_log_gdp_pps" in plot_df.columns:
+            ax.plot(
+                plot_df["year"],
+                plot_df["sigma_log_gdp_pps"],
+                marker="o",
+                linewidth=2,
+                label="PPS GDP pc sigma",
+            )
+        if "sigma_log_gdp_nominal" in plot_df.columns:
+            ax.plot(
+                plot_df["year"],
+                plot_df["sigma_log_gdp_nominal"],
+                marker="o",
+                linewidth=2,
+                label="Nominal GDP pc sigma",
+                alpha=0.6,
+            )
+
         ax.axvspan(period_start, period_end, color="#2ca02c", alpha=0.15, label="2014-2020 period")
         ax.set_xlabel("Year")
         ax.set_ylabel("Sigma(log GDP per capita)")

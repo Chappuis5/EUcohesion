@@ -1,0 +1,22 @@
+{
+  "tables": [
+    "/Users/evanflament/Desktop/2026/Inf Projects/EUcohesion/outputs/tables/panel_master_overview.csv",
+    "/Users/evanflament/Desktop/2026/Inf Projects/EUcohesion/outputs/tables/panel_master_key_missingness.csv",
+    "/Users/evanflament/Desktop/2026/Inf Projects/EUcohesion/outputs/tables/twfe_main_results_v2.csv",
+    "/Users/evanflament/Desktop/2026/Inf Projects/EUcohesion/outputs/tables/dl_lags_results_v2.csv",
+    "/Users/evanflament/Desktop/2026/Inf Projects/EUcohesion/outputs/tables/model_comparison_summary_v2.csv",
+    "/Users/evanflament/Desktop/2026/Inf Projects/EUcohesion/outputs/tables/beta_convergence_results_v2.csv",
+    "/Users/evanflament/Desktop/2026/Inf Projects/EUcohesion/outputs/tables/leads_lags_results_v2.csv",
+    "/Users/evanflament/Desktop/2026/Inf Projects/EUcohesion/outputs/tables/robustness_outliers_v2.csv",
+    "/Users/evanflament/Desktop/2026/Inf Projects/EUcohesion/outputs/tables/robustness_balanced_panel_v2.csv",
+    "/Users/evanflament/Desktop/2026/Inf Projects/EUcohesion/outputs/tables/robustness_scaling_v2.csv"
+  ],
+  "figures": [
+    "/Users/evanflament/Desktop/2026/Inf Projects/EUcohesion/outputs/figures/sigma_convergence_v2.png",
+    "/Users/evanflament/Desktop/2026/Inf Projects/EUcohesion/outputs/figures/dynamic_lag_response_v2.png",
+    "/Users/evanflament/Desktop/2026/Inf Projects/EUcohesion/outputs/figures/leads_lags_placebo_v2.png",
+    "/Users/evanflament/Desktop/2026/Inf Projects/EUcohesion/outputs/figures/beta_convergence_partial_v2.png",
+    "/Users/evanflament/Desktop/2026/Inf Projects/EUcohesion/outputs/figures/growth_nominal_pps_real_trends.png"
+  ],
+  "report_html": "/Users/evanflament/Desktop/2026/Inf Projects/EUcohesion/outputs/report.html"
+}

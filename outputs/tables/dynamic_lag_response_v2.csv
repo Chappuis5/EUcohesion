@@ -1,0 +1,5 @@
+outcome,model,term,horizon,coef,std_err,t_stat,p_value,ci_95_lower,ci_95_upper,n_obs,n_regions,fe_type,clustering,sample_year_min,sample_year_max,controls_used
+gdp_pc_real_growth,Model C (headline with l0),erdf_eur_pc,0,0.002574697383,0.003672934538,0.7009919062,0.4833080663,-0.004624122028,0.009773516794,861,223,year,nuts2,2019,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
+gdp_pc_real_growth,Model C (headline with l0),erdf_eur_pc_l1,1,0.01239290056,0.004729851335,2.620145895,0.00878921563,0.003122562289,0.02166323883,861,223,year,nuts2,2019,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
+gdp_pc_real_growth,Model C (headline with l0),erdf_eur_pc_l2,2,0.00877569312,0.003632756979,2.415711585,0.01570449527,0.001655620277,0.01589576596,861,223,year,nuts2,2019,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
+gdp_pc_real_growth,Model C (headline with l0),erdf_eur_pc_l3,3,-0.002182304986,0.002995373247,-0.7285586155,0.4662717012,-0.00805312867,0.003688518699,861,223,year,nuts2,2019,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"

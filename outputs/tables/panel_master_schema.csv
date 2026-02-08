@@ -1,5 +1,5 @@
 column,dtype,missing_pct
-category_2014_2020,string,1
+category_2014_2020,string,0.2989949749
 country,object,0
 country_year,object,0
 emp_rate,Float64,0.7648241206
@@ -15,9 +15,18 @@ gdp_eur,Float64,0.8202889447
 gdp_mio_eur,Float64,0.8202889447
 gdp_pc,float64,0.8587311558
 gdp_pc_growth,float64,0.8769472362
+gdp_pc_pps,float64,0.591080402
+gdp_pc_pps_growth,float64,0.6094221106
+gdp_pc_real,float64,0.6052763819
+gdp_pc_real_growth,float64,0.622361809
+gdp_volume_index,Float64,0.6035175879
 gva,Float64,0.8522613065
 log_gdp_pc,float64,0.8587311558
 log_gdp_pc_l1,float64,0.8587311558
+log_gdp_pc_pps,float64,0.591080402
+log_gdp_pc_pps_l1,float64,0.591080402
+log_gdp_pc_real,float64,0.6052763819
+log_gdp_pc_real_l1,float64,0.6052763819
 nuts2_id,object,0
 population,Float64,0.8054648241
 rd_gerd,Float64,0.8548994975

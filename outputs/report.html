@@ -1,0 +1,1320 @@
+
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>EU Cohesion V2 Results</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; color: #1f2937; }
+    h1, h2, h3 { margin-top: 28px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .card { border: 1px solid #d1d5db; border-radius: 8px; padding: 12px; background: #f9fafb; }
+    table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+    th, td { border: 1px solid #d1d5db; padding: 6px 8px; text-align: left; }
+    th { background: #f3f4f6; }
+    img { max-width: 100%; border: 1px solid #d1d5db; border-radius: 6px; }
+    .note { font-size: 0.9rem; color: #4b5563; }
+  </style>
+</head>
+<body>
+  <h1>EU Cohesion V2 Empirical Results</h1>
+  <p class="note">Headline outcome: <strong>gdp_pc_real_growth</strong></p>
+
+  <h2>1) Dataset Overview</h2>
+  <table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th>metric</th>
+      <th>value</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>min_year</td>
+      <td>1986</td>
+    </tr>
+    <tr>
+      <td>max_year</td>
+      <td>2025</td>
+    </tr>
+    <tr>
+      <td>n_regions</td>
+      <td>398</td>
+    </tr>
+    <tr>
+      <td>n_rows</td>
+      <td>15920</td>
+    </tr>
+    <tr>
+      <td>headline_outcome</td>
+      <td>gdp_pc_real_growth</td>
+    </tr>
+  </tbody>
+</table>
+  <h3>Key Missingness</h3>
+  <table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th>variable</th>
+      <th>missing_rate</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>gdp_pc_growth</td>
+      <td>0.876947</td>
+    </tr>
+    <tr>
+      <td>erdf_eur_pc_l3</td>
+      <td>0.859296</td>
+    </tr>
+    <tr>
+      <td>rd_gerd</td>
+      <td>0.854899</td>
+    </tr>
+    <tr>
+      <td>gva</td>
+      <td>0.852261</td>
+    </tr>
+    <tr>
+      <td>erdf_eur_pc_l2</td>
+      <td>0.840578</td>
+    </tr>
+    <tr>
+      <td>erdf_eur_pc_l1</td>
+      <td>0.823053</td>
+    </tr>
+    <tr>
+      <td>erdf_eur_pc</td>
+      <td>0.805465</td>
+    </tr>
+    <tr>
+      <td>unemp_rate</td>
+      <td>0.767085</td>
+    </tr>
+    <tr>
+      <td>tertiary_share_25_64</td>
+      <td>0.765578</td>
+    </tr>
+    <tr>
+      <td>emp_rate</td>
+      <td>0.764824</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>0.622362</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_pps_growth</td>
+      <td>0.609422</td>
+    </tr>
+  </tbody>
+</table>
+
+  <h2>2) Headline Causal Models (A/B/C)</h2>
+  <table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th>outcome</th>
+      <th>model</th>
+      <th>term</th>
+      <th>coef</th>
+      <th>std_err</th>
+      <th>t_stat</th>
+      <th>p_value</th>
+      <th>ci_95_lower</th>
+      <th>ci_95_upper</th>
+      <th>n_obs</th>
+      <th>n_regions</th>
+      <th>fe_type</th>
+      <th>clustering</th>
+      <th>sample_year_min</th>
+      <th>sample_year_max</th>
+      <th>controls_used</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model A</td>
+      <td>erdf_eur_pc_l1</td>
+      <td>0.005680</td>
+      <td>0.003025</td>
+      <td>1.877873</td>
+      <td>6.039856e-02</td>
+      <td>-0.000248</td>
+      <td>0.011608</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model A</td>
+      <td>unemp_rate</td>
+      <td>-0.645481</td>
+      <td>0.083054</td>
+      <td>-7.771818</td>
+      <td>7.736728e-15</td>
+      <td>-0.808264</td>
+      <td>-0.482698</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model A</td>
+      <td>emp_rate</td>
+      <td>-0.311572</td>
+      <td>0.097518</td>
+      <td>-3.195020</td>
+      <td>1.398212e-03</td>
+      <td>-0.502704</td>
+      <td>-0.120440</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model A</td>
+      <td>tertiary_share_25_64</td>
+      <td>-0.196250</td>
+      <td>0.092246</td>
+      <td>-2.127452</td>
+      <td>3.338256e-02</td>
+      <td>-0.377049</td>
+      <td>-0.015450</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model A</td>
+      <td>rd_gerd</td>
+      <td>-0.780868</td>
+      <td>0.538157</td>
+      <td>-1.451004</td>
+      <td>1.467787e-01</td>
+      <td>-1.835636</td>
+      <td>0.273900</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model A</td>
+      <td>gva</td>
+      <td>0.143671</td>
+      <td>0.035563</td>
+      <td>4.039922</td>
+      <td>5.346901e-05</td>
+      <td>0.073969</td>
+      <td>0.213374</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model B</td>
+      <td>erdf_eur_pc_l1</td>
+      <td>0.003362</td>
+      <td>0.002888</td>
+      <td>1.163952</td>
+      <td>2.444433e-01</td>
+      <td>-0.002299</td>
+      <td>0.009023</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>country_year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model B</td>
+      <td>unemp_rate</td>
+      <td>0.010578</td>
+      <td>0.104282</td>
+      <td>0.101436</td>
+      <td>9.192041e-01</td>
+      <td>-0.193811</td>
+      <td>0.214967</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>country_year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model B</td>
+      <td>emp_rate</td>
+      <td>-0.040660</td>
+      <td>0.123919</td>
+      <td>-0.328117</td>
+      <td>7.428229e-01</td>
+      <td>-0.283536</td>
+      <td>0.202217</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>country_year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model B</td>
+      <td>tertiary_share_25_64</td>
+      <td>-0.101720</td>
+      <td>0.101736</td>
+      <td>-0.999845</td>
+      <td>3.173854e-01</td>
+      <td>-0.301119</td>
+      <td>0.097679</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>country_year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model B</td>
+      <td>rd_gerd</td>
+      <td>-0.539994</td>
+      <td>0.601826</td>
+      <td>-0.897260</td>
+      <td>3.695802e-01</td>
+      <td>-1.719551</td>
+      <td>0.639563</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>country_year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model B</td>
+      <td>gva</td>
+      <td>0.220716</td>
+      <td>0.065134</td>
+      <td>3.388648</td>
+      <td>7.023807e-04</td>
+      <td>0.093056</td>
+      <td>0.348377</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>country_year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model C</td>
+      <td>erdf_eur_pc_l1</td>
+      <td>0.011999</td>
+      <td>0.004850</td>
+      <td>2.474144</td>
+      <td>1.335560e-02</td>
+      <td>0.002494</td>
+      <td>0.021505</td>
+      <td>861</td>
+      <td>223</td>
+      <td>year</td>
+      <td>nuts2</td>
+      <td>2019</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model C</td>
+      <td>erdf_eur_pc_l2</td>
+      <td>0.007897</td>
+      <td>0.003778</td>
+      <td>2.089908</td>
+      <td>3.662606e-02</td>
+      <td>0.000491</td>
+      <td>0.015302</td>
+      <td>861</td>
+      <td>223</td>
+      <td>year</td>
+      <td>nuts2</td>
+      <td>2019</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model C</td>
+      <td>erdf_eur_pc_l3</td>
+      <td>-0.003085</td>
+      <td>0.002665</td>
+      <td>-1.157747</td>
+      <td>2.469671e-01</td>
+      <td>-0.008309</td>
+      <td>0.002138</td>
+      <td>861</td>
+      <td>223</td>
+      <td>year</td>
+      <td>nuts2</td>
+      <td>2019</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model C</td>
+      <td>unemp_rate</td>
+      <td>-0.623873</td>
+      <td>0.152467</td>
+      <td>-4.091862</td>
+      <td>4.279226e-05</td>
+      <td>-0.922702</td>
+      <td>-0.325044</td>
+      <td>861</td>
+      <td>223</td>
+      <td>year</td>
+      <td>nuts2</td>
+      <td>2019</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model C</td>
+      <td>emp_rate</td>
+      <td>-0.276854</td>
+      <td>0.121080</td>
+      <td>-2.286541</td>
+      <td>2.222263e-02</td>
+      <td>-0.514166</td>
+      <td>-0.039542</td>
+      <td>861</td>
+      <td>223</td>
+      <td>year</td>
+      <td>nuts2</td>
+      <td>2019</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model C</td>
+      <td>tertiary_share_25_64</td>
+      <td>-0.297705</td>
+      <td>0.129373</td>
+      <td>-2.301129</td>
+      <td>2.138432e-02</td>
+      <td>-0.551272</td>
+      <td>-0.044138</td>
+      <td>861</td>
+      <td>223</td>
+      <td>year</td>
+      <td>nuts2</td>
+      <td>2019</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model C</td>
+      <td>rd_gerd</td>
+      <td>-1.427459</td>
+      <td>0.723457</td>
+      <td>-1.973108</td>
+      <td>4.848328e-02</td>
+      <td>-2.845409</td>
+      <td>-0.009509</td>
+      <td>861</td>
+      <td>223</td>
+      <td>year</td>
+      <td>nuts2</td>
+      <td>2019</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model C</td>
+      <td>gva</td>
+      <td>0.207709</td>
+      <td>0.051100</td>
+      <td>4.064715</td>
+      <td>4.809109e-05</td>
+      <td>0.107554</td>
+      <td>0.307864</td>
+      <td>861</td>
+      <td>223</td>
+      <td>year</td>
+      <td>nuts2</td>
+      <td>2019</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+  </tbody>
+</table>
+
+  <h2>3) Robustness Comparison</h2>
+  <table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th>outcome</th>
+      <th>model</th>
+      <th>key_term</th>
+      <th>coef</th>
+      <th>std_err</th>
+      <th>p_value</th>
+      <th>ci_95_lower</th>
+      <th>ci_95_upper</th>
+      <th>n_obs</th>
+      <th>n_regions</th>
+      <th>fe_type</th>
+      <th>clustering</th>
+      <th>sample_year_min</th>
+      <th>sample_year_max</th>
+      <th>outlier_rule</th>
+      <th>outlier_threshold</th>
+      <th>balanced_window_start</th>
+      <th>balanced_window_end</th>
+      <th>balanced_regions</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model A (balanced panel)</td>
+      <td>erdf_eur_pc_l1</td>
+      <td>0.005542</td>
+      <td>0.003063</td>
+      <td>0.070405</td>
+      <td>-0.000462</td>
+      <td>0.011546</td>
+      <td>805</td>
+      <td>115</td>
+      <td>year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>drop global top 1% erdf_eur_pc</td>
+      <td>264.108343</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>115</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model A (outliers excluded)</td>
+      <td>erdf_eur_pc_l1</td>
+      <td>0.006324</td>
+      <td>0.003033</td>
+      <td>0.037075</td>
+      <td>0.000379</td>
+      <td>0.012268</td>
+      <td>1156</td>
+      <td>223</td>
+      <td>year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>drop global top 1% erdf_eur_pc</td>
+      <td>264.108343</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>115</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model A (scaled treatment)</td>
+      <td>erdf_k_eur_pc_l1</td>
+      <td>5.679637</td>
+      <td>3.024506</td>
+      <td>0.060399</td>
+      <td>-0.248285</td>
+      <td>11.607559</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>drop global top 1% erdf_eur_pc</td>
+      <td>264.108343</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>115</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model B (balanced panel)</td>
+      <td>erdf_eur_pc_l1</td>
+      <td>0.002715</td>
+      <td>0.003029</td>
+      <td>0.370080</td>
+      <td>-0.003222</td>
+      <td>0.008652</td>
+      <td>805</td>
+      <td>115</td>
+      <td>country_year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>drop global top 1% erdf_eur_pc</td>
+      <td>264.108343</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>115</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model B (outliers excluded)</td>
+      <td>erdf_eur_pc_l1</td>
+      <td>0.003256</td>
+      <td>0.002984</td>
+      <td>0.275227</td>
+      <td>-0.002593</td>
+      <td>0.009104</td>
+      <td>1156</td>
+      <td>223</td>
+      <td>country_year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>drop global top 1% erdf_eur_pc</td>
+      <td>264.108343</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>115</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model B (scaled treatment)</td>
+      <td>erdf_k_eur_pc_l1</td>
+      <td>3.361760</td>
+      <td>2.888228</td>
+      <td>0.244443</td>
+      <td>-2.299063</td>
+      <td>9.022584</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>country_year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>drop global top 1% erdf_eur_pc</td>
+      <td>264.108343</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>115</td>
+    </tr>
+  </tbody>
+</table>
+
+  <h2>4) Beta and Sigma Convergence</h2>
+  <table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th>outcome</th>
+      <th>model</th>
+      <th>term</th>
+      <th>coef</th>
+      <th>std_err</th>
+      <th>t_stat</th>
+      <th>p_value</th>
+      <th>ci_95_lower</th>
+      <th>ci_95_upper</th>
+      <th>n_obs</th>
+      <th>n_regions</th>
+      <th>fe_type</th>
+      <th>clustering</th>
+      <th>sample_year_min</th>
+      <th>sample_year_max</th>
+      <th>controls_used</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model D</td>
+      <td>log_gdp_pc_real_l1</td>
+      <td>-5.267283</td>
+      <td>0.602008</td>
+      <td>-8.749527</td>
+      <td>2.142487e-18</td>
+      <td>-6.447197</td>
+      <td>-4.087370</td>
+      <td>6012</td>
+      <td>272</td>
+      <td>year</td>
+      <td>nuts2</td>
+      <td>2001</td>
+      <td>2023</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model E</td>
+      <td>log_gdp_pc_real_l1</td>
+      <td>-103.618010</td>
+      <td>1.785512</td>
+      <td>-58.032653</td>
+      <td>0.000000e+00</td>
+      <td>-107.117550</td>
+      <td>-100.118470</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model E</td>
+      <td>erdf_eur_pc_l1</td>
+      <td>-0.010347</td>
+      <td>0.019129</td>
+      <td>-0.540894</td>
+      <td>5.885808e-01</td>
+      <td>-0.047840</td>
+      <td>0.027146</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model E</td>
+      <td>erdf_eur_pc_l1:log_gdp_pc_real_l1</td>
+      <td>0.001197</td>
+      <td>0.002027</td>
+      <td>0.590463</td>
+      <td>5.548802e-01</td>
+      <td>-0.002776</td>
+      <td>0.005169</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model E</td>
+      <td>unemp_rate</td>
+      <td>-0.070479</td>
+      <td>0.061746</td>
+      <td>-1.141445</td>
+      <td>2.536847e-01</td>
+      <td>-0.191499</td>
+      <td>0.050540</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model E</td>
+      <td>emp_rate</td>
+      <td>0.035694</td>
+      <td>0.042576</td>
+      <td>0.838360</td>
+      <td>4.018284e-01</td>
+      <td>-0.047754</td>
+      <td>0.119142</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model E</td>
+      <td>tertiary_share_25_64</td>
+      <td>-0.025351</td>
+      <td>0.029103</td>
+      <td>-0.871060</td>
+      <td>3.837213e-01</td>
+      <td>-0.082392</td>
+      <td>0.031691</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model E</td>
+      <td>rd_gerd</td>
+      <td>0.233428</td>
+      <td>0.200718</td>
+      <td>1.162964</td>
+      <td>2.448443e-01</td>
+      <td>-0.159972</td>
+      <td>0.626828</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model E</td>
+      <td>gva</td>
+      <td>0.819057</td>
+      <td>0.026602</td>
+      <td>30.788784</td>
+      <td>3.702864e-208</td>
+      <td>0.766917</td>
+      <td>0.871197</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model E (country-year FE)</td>
+      <td>log_gdp_pc_real_l1</td>
+      <td>-101.340054</td>
+      <td>2.976162</td>
+      <td>-34.050586</td>
+      <td>3.978591e-254</td>
+      <td>-107.173224</td>
+      <td>-95.506884</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>country_year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model E (country-year FE)</td>
+      <td>erdf_eur_pc_l1</td>
+      <td>0.030058</td>
+      <td>0.025919</td>
+      <td>1.159668</td>
+      <td>2.461839e-01</td>
+      <td>-0.020743</td>
+      <td>0.080859</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>country_year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model E (country-year FE)</td>
+      <td>erdf_eur_pc_l1:log_gdp_pc_real_l1</td>
+      <td>-0.003032</td>
+      <td>0.002648</td>
+      <td>-1.145086</td>
+      <td>2.521736e-01</td>
+      <td>-0.008222</td>
+      <td>0.002158</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>country_year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model E (country-year FE)</td>
+      <td>unemp_rate</td>
+      <td>0.038362</td>
+      <td>0.076465</td>
+      <td>0.501698</td>
+      <td>6.158801e-01</td>
+      <td>-0.111506</td>
+      <td>0.188230</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>country_year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model E (country-year FE)</td>
+      <td>emp_rate</td>
+      <td>0.058033</td>
+      <td>0.059142</td>
+      <td>0.981258</td>
+      <td>3.264655e-01</td>
+      <td>-0.057882</td>
+      <td>0.173949</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>country_year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model E (country-year FE)</td>
+      <td>tertiary_share_25_64</td>
+      <td>-0.038208</td>
+      <td>0.022010</td>
+      <td>-1.735898</td>
+      <td>8.258192e-02</td>
+      <td>-0.081347</td>
+      <td>0.004932</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>country_year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model E (country-year FE)</td>
+      <td>rd_gerd</td>
+      <td>0.131189</td>
+      <td>0.188324</td>
+      <td>0.696612</td>
+      <td>4.860457e-01</td>
+      <td>-0.237919</td>
+      <td>0.500296</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>country_year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_real_growth</td>
+      <td>Model E (country-year FE)</td>
+      <td>gva</td>
+      <td>0.832225</td>
+      <td>0.037628</td>
+      <td>22.117185</td>
+      <td>2.159915e-108</td>
+      <td>0.758476</td>
+      <td>0.905975</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>country_year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_pps_growth</td>
+      <td>Model D</td>
+      <td>log_gdp_pc_pps_l1</td>
+      <td>-7.724735</td>
+      <td>0.435866</td>
+      <td>-17.722744</td>
+      <td>2.799174e-70</td>
+      <td>-8.579015</td>
+      <td>-6.870454</td>
+      <td>6218</td>
+      <td>292</td>
+      <td>year</td>
+      <td>nuts2</td>
+      <td>2001</td>
+      <td>2023</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>gdp_pc_pps_growth</td>
+      <td>Model E</td>
+      <td>log_gdp_pc_pps_l1</td>
+      <td>-52.178507</td>
+      <td>6.741167</td>
+      <td>-7.740278</td>
+      <td>9.919962e-15</td>
+      <td>-65.390952</td>
+      <td>-38.966063</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_pps_growth</td>
+      <td>Model E</td>
+      <td>erdf_eur_pc_l1</td>
+      <td>-0.015846</td>
+      <td>0.088078</td>
+      <td>-0.179914</td>
+      <td>8.572202e-01</td>
+      <td>-0.188476</td>
+      <td>0.156783</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_pps_growth</td>
+      <td>Model E</td>
+      <td>erdf_eur_pc_l1:log_gdp_pc_pps_l1</td>
+      <td>0.001914</td>
+      <td>0.008857</td>
+      <td>0.216114</td>
+      <td>8.288986e-01</td>
+      <td>-0.015446</td>
+      <td>0.019274</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_pps_growth</td>
+      <td>Model E</td>
+      <td>unemp_rate</td>
+      <td>-0.371136</td>
+      <td>0.086686</td>
+      <td>-4.281399</td>
+      <td>1.857220e-05</td>
+      <td>-0.541036</td>
+      <td>-0.201235</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_pps_growth</td>
+      <td>Model E</td>
+      <td>emp_rate</td>
+      <td>-0.031546</td>
+      <td>0.128419</td>
+      <td>-0.245651</td>
+      <td>8.059522e-01</td>
+      <td>-0.283242</td>
+      <td>0.220150</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_pps_growth</td>
+      <td>Model E</td>
+      <td>tertiary_share_25_64</td>
+      <td>-0.406706</td>
+      <td>0.094194</td>
+      <td>-4.317739</td>
+      <td>1.576355e-05</td>
+      <td>-0.591323</td>
+      <td>-0.222088</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_pps_growth</td>
+      <td>Model E</td>
+      <td>rd_gerd</td>
+      <td>-1.072647</td>
+      <td>0.617415</td>
+      <td>-1.737319</td>
+      <td>8.233096e-02</td>
+      <td>-2.282759</td>
+      <td>0.137465</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_pps_growth</td>
+      <td>Model E</td>
+      <td>gva</td>
+      <td>0.371331</td>
+      <td>0.066120</td>
+      <td>5.615996</td>
+      <td>1.954328e-08</td>
+      <td>0.241738</td>
+      <td>0.500924</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_pps_growth</td>
+      <td>Model E (country-year FE)</td>
+      <td>log_gdp_pc_pps_l1</td>
+      <td>-56.803175</td>
+      <td>5.619697</td>
+      <td>-10.107871</td>
+      <td>5.097999e-24</td>
+      <td>-67.817579</td>
+      <td>-45.788771</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>country_year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_pps_growth</td>
+      <td>Model E (country-year FE)</td>
+      <td>erdf_eur_pc_l1</td>
+      <td>-0.018215</td>
+      <td>0.062550</td>
+      <td>-0.291207</td>
+      <td>7.708930e-01</td>
+      <td>-0.140811</td>
+      <td>0.104381</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>country_year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_pps_growth</td>
+      <td>Model E (country-year FE)</td>
+      <td>erdf_eur_pc_l1:log_gdp_pc_pps_l1</td>
+      <td>0.001788</td>
+      <td>0.006265</td>
+      <td>0.285369</td>
+      <td>7.753618e-01</td>
+      <td>-0.010491</td>
+      <td>0.014067</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>country_year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_pps_growth</td>
+      <td>Model E (country-year FE)</td>
+      <td>unemp_rate</td>
+      <td>-0.046387</td>
+      <td>0.109807</td>
+      <td>-0.422438</td>
+      <td>6.727057e-01</td>
+      <td>-0.261605</td>
+      <td>0.168832</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>country_year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_pps_growth</td>
+      <td>Model E (country-year FE)</td>
+      <td>emp_rate</td>
+      <td>0.100771</td>
+      <td>0.128720</td>
+      <td>0.782876</td>
+      <td>4.336999e-01</td>
+      <td>-0.151514</td>
+      <td>0.353057</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>country_year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_pps_growth</td>
+      <td>Model E (country-year FE)</td>
+      <td>tertiary_share_25_64</td>
+      <td>-0.186769</td>
+      <td>0.075992</td>
+      <td>-2.457730</td>
+      <td>1.398184e-02</td>
+      <td>-0.335711</td>
+      <td>-0.037826</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>country_year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_pps_growth</td>
+      <td>Model E (country-year FE)</td>
+      <td>rd_gerd</td>
+      <td>-0.830514</td>
+      <td>0.577538</td>
+      <td>-1.438025</td>
+      <td>1.504269e-01</td>
+      <td>-1.962467</td>
+      <td>0.301439</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>country_year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+    <tr>
+      <td>gdp_pc_pps_growth</td>
+      <td>Model E (country-year FE)</td>
+      <td>gva</td>
+      <td>0.273376</td>
+      <td>0.069326</td>
+      <td>3.943330</td>
+      <td>8.035797e-05</td>
+      <td>0.137499</td>
+      <td>0.409252</td>
+      <td>1175</td>
+      <td>223</td>
+      <td>country_year</td>
+      <td>nuts2</td>
+      <td>2017</td>
+      <td>2023</td>
+      <td>unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva</td>
+    </tr>
+  </tbody>
+</table>
+  <div class="grid">
+    <div class="card">
+      <h3>Sigma Convergence</h3>
+      <img src="figures/sigma_convergence_v2.png" alt="sigma convergence" />
+    </div>
+    <div class="card">
+      <h3>Beta Marginal Effect</h3>
+      <img src="figures/beta_convergence_partial_v2.png" alt="beta marginal effect" />
+    </div>
+  </div>
+
+  <h2>5) Placebo Leads/Lags</h2>
+  <img src="figures/leads_lags_placebo_v2.png" alt="placebo leads lags" />
+
+  <h2>6) Key Figures</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>Dynamic Lag Response</h3>
+      <img src="figures/dynamic_lag_response_v2.png" alt="dynamic lag response" />
+    </div>
+    <div class="card">
+      <h3>Nominal vs PPS vs Real Growth</h3>
+      <img src="figures/growth_nominal_pps_real_trends.png" alt="growth comparison" />
+    </div>
+  </div>
+
+  <p class="note">Generated by scripts/run_models.py from cached processed inputs.</p>
+</body>
+</html>
