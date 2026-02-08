@@ -1,0 +1,5 @@
+outcome,window,bandwidth,coef,std_err,t_stat,p_value,ci_95_lower,ci_95_upper,n_obs,n_left,n_right,interpretation
+gdp_pc_pps_growth,post_2016_2020,10,-1.970789659,1.536487246,-1.282659302,0.199611464,-4.982249323,1.040670006,53,24,29,eligibility ITT effect (sharp RD at 75 cutoff)
+gdp_pc_pps_growth,post_2021_2023,10,2.840440044,1.201785697,2.363516266,0.01810243197,0.4849833599,5.195896727,53,24,29,eligibility ITT effect (sharp RD at 75 cutoff)
+gdp_pc_real_growth,post_2016_2020,10,-0.1588087945,1.375125184,-0.1154867909,0.9080592898,-2.854004629,2.53638704,53,24,29,eligibility ITT effect (sharp RD at 75 cutoff)
+gdp_pc_real_growth,post_2021_2023,10,2.420226763,0.9750722535,2.48209992,0.01306106449,0.5091202634,4.331333262,53,24,29,eligibility ITT effect (sharp RD at 75 cutoff)

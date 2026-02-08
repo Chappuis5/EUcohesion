@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import logging
+import subprocess
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -98,6 +100,37 @@ FIGURE_PATHS_V3 = {
     "beta_partial": OUTPUT_FIGURES_DIR / "beta_convergence_partial_v3.png",
     "rd_binned": OUTPUT_FIGURES_DIR / "rd_binned_scatter_v3.png",
     "rd_bandwidth": OUTPUT_FIGURES_DIR / "rd_bandwidth_sensitivity_v3.png",
+}
+
+TABLE_PATHS_V31 = {
+    "twfe_main": OUTPUT_TABLES_DIR / "twfe_main_results_v31.csv",
+    "dl_lags": OUTPUT_TABLES_DIR / "dl_lags_results_v31.csv",
+    "dynamic_lag": OUTPUT_TABLES_DIR / "dynamic_lag_response_v31.csv",
+    "leads_lags": OUTPUT_TABLES_DIR / "leads_lags_results_v31.csv",
+    "beta": OUTPUT_TABLES_DIR / "beta_convergence_results_v31.csv",
+    "heterogeneity": OUTPUT_TABLES_DIR / "heterogeneity_by_category_v31.csv",
+    "robust_outliers": OUTPUT_TABLES_DIR / "robustness_outliers_v31.csv",
+    "robust_balanced": OUTPUT_TABLES_DIR / "robustness_balanced_panel_v31.csv",
+    "robust_scaling": OUTPUT_TABLES_DIR / "robustness_scaling_v31.csv",
+    "rd_first_stage_funding_jump": OUTPUT_TABLES_DIR / "rd_first_stage_funding_jump_v31.csv",
+    "rd_outcome_sharp": OUTPUT_TABLES_DIR / "rd_outcome_sharp_results_v31.csv",
+    "rd_bandwidth_sensitivity": OUTPUT_TABLES_DIR / "rd_bandwidth_sensitivity_v31.csv",
+    "rd_placebo_pretrend": OUTPUT_TABLES_DIR / "rd_placebo_pretrend_v31.csv",
+    "iv_first_stage_candidates": OUTPUT_TABLES_DIR / "iv_first_stage_candidates_v31.csv",
+    "iv_panel_results": OUTPUT_TABLES_DIR / "iv_2sls_results_v31.csv",
+    "iv_cross_section_results": OUTPUT_TABLES_DIR / "iv_cross_section_results_v31.csv",
+    "model_summary": OUTPUT_TABLES_DIR / "model_comparison_summary_v31.csv",
+}
+
+FIGURE_PATHS_V31 = {
+    "dynamic_lag": OUTPUT_FIGURES_DIR / "dynamic_lag_response_v31.png",
+    "leads_lags": OUTPUT_FIGURES_DIR / "leads_lags_placebo_v31.png",
+    "sigma": OUTPUT_FIGURES_DIR / "sigma_convergence_v31.png",
+    "beta_partial": OUTPUT_FIGURES_DIR / "beta_convergence_partial_v31.png",
+    "rd_first_stage_funding_jump": OUTPUT_FIGURES_DIR / "rd_first_stage_funding_jump_v31.png",
+    "rd_outcome_binned_scatter": OUTPUT_FIGURES_DIR / "rd_outcome_binned_scatter_v31.png",
+    "rd_bandwidth_sensitivity": OUTPUT_FIGURES_DIR / "rd_bandwidth_sensitivity_v31.png",
+    "iv_first_stage_scatter": OUTPUT_FIGURES_DIR / "iv_first_stage_scatter_v31.png",
 }
 
 VALID_CATEGORIES = ["less_developed", "transition", "more_developed"]
@@ -2383,12 +2416,1356 @@ def create_html_report_v3(
     return manifest
 
 
+def _build_leave_one_out_country_mean(panel: pd.DataFrame, value_column: str) -> pd.Series:
+    grouped = panel.groupby(["country", "year"], sort=False)[value_column]
+    sum_by_group = grouped.transform("sum")
+    count_by_group = grouped.transform("count")
+    own = panel[value_column]
+    leave_out = np.where(
+        count_by_group > 1,
+        (sum_by_group - own) / (count_by_group - 1),
+        np.nan,
+    )
+    return pd.Series(leave_out, index=panel.index)
+
+
+def _within_group_variance(series: pd.Series, group: pd.Series) -> float:
+    try:
+        within_std = series.groupby(group, sort=False).std()
+        return float(within_std.fillna(0.0).sum())
+    except Exception:  # noqa: BLE001
+        return 0.0
+
+
+def _first_stage_ols_diagnostic(
+    data: pd.DataFrame,
+    endog: str,
+    instrument: str,
+    controls: Sequence[str],
+    fe_terms: Sequence[str],
+    cluster_col: Optional[str],
+    candidate_id: str,
+    candidate_label: str,
+    sample_type: str,
+    spec_name: str,
+    require_within_variation_by: Optional[str] = None,
+) -> Dict[str, object]:
+    row: Dict[str, object] = {
+        "candidate_id": candidate_id,
+        "candidate_label": candidate_label,
+        "sample_type": sample_type,
+        "spec_name": spec_name,
+        "endogenous_var": endog,
+        "instrument_var": instrument,
+        "fe_spec": " + ".join(fe_terms) if fe_terms else "none",
+        "controls_used": ",".join(controls),
+        "n_obs": 0,
+        "n_regions": 0,
+        "coef": np.nan,
+        "std_err": np.nan,
+        "t_stat": np.nan,
+        "p_value": np.nan,
+        "f_stat": np.nan,
+        "partial_r2": np.nan,
+        "status": "failed",
+        "status_reason": "",
+    }
+
+    required = [endog, instrument, *controls]
+    if "nuts2_id" in data.columns:
+        required.append("nuts2_id")
+    if "country" in data.columns:
+        required.append("country")
+    if sample_type == "panel":
+        required.append("year")
+    missing = sorted(set(required) - set(data.columns))
+    if missing:
+        row["status_reason"] = f"missing columns: {', '.join(missing)}"
+        return row
+
+    sample = data[required].dropna().copy()
+    row["n_obs"] = int(sample.shape[0])
+    row["n_regions"] = int(sample["nuts2_id"].nunique()) if "nuts2_id" in sample.columns else np.nan
+
+    if sample.empty:
+        row["status_reason"] = "empty sample after dropping missing values"
+        return row
+
+    if pd.to_numeric(sample[instrument], errors="coerce").std(ddof=0) == 0:
+        row["status_reason"] = "instrument has zero variance in estimation sample"
+        return row
+
+    if require_within_variation_by is not None:
+        within_var = _within_group_variance(
+            pd.to_numeric(sample[instrument], errors="coerce"),
+            sample[require_within_variation_by],
+        )
+        if within_var == 0:
+            row["status_reason"] = (
+                f"instrument has no within-{require_within_variation_by} variation under FE"
+            )
+            return row
+
+    rhs_full = [instrument, *controls, *fe_terms]
+    rhs_restricted = [*controls, *fe_terms]
+    formula_full = f"{endog} ~ {' + '.join(rhs_full) if rhs_full else '1'}"
+    formula_restricted = f"{endog} ~ {' + '.join(rhs_restricted) if rhs_restricted else '1'}"
+
+    try:
+        if cluster_col is None:
+            fit_full = smf.ols(formula=formula_full, data=sample).fit()
+        else:
+            fit_full = smf.ols(formula=formula_full, data=sample).fit(
+                cov_type="cluster",
+                cov_kwds={"groups": sample[cluster_col]},
+            )
+        fit_restricted = smf.ols(formula=formula_restricted, data=sample).fit()
+    except Exception as exc:  # noqa: BLE001
+        row["status_reason"] = f"fit failed: {exc}"
+        return row
+
+    if instrument not in fit_full.params.index:
+        row["status_reason"] = "instrument dropped due rank deficiency"
+        return row
+
+    coef = float(fit_full.params[instrument])
+    std_err = float(fit_full.bse[instrument])
+    t_stat = float(fit_full.tvalues[instrument])
+    p_value = float(fit_full.pvalues[instrument])
+    f_stat = float(t_stat**2)
+
+    if (1.0 - fit_restricted.rsquared) > 1e-9:
+        partial_r2 = float((fit_full.rsquared - fit_restricted.rsquared) / (1.0 - fit_restricted.rsquared))
+    else:
+        partial_r2 = np.nan
+
+    row.update(
+        {
+            "coef": coef,
+            "std_err": std_err,
+            "t_stat": t_stat,
+            "p_value": p_value,
+            "f_stat": f_stat,
+            "partial_r2": partial_r2,
+            "status": "ok",
+            "status_reason": "",
+        }
+    )
+    return row
+
+
+def build_iv_first_stage_candidates_v31(
+    panel: pd.DataFrame,
+    region_df: pd.DataFrame,
+    controls: Sequence[str],
+) -> pd.DataFrame:
+    work = panel.copy()
+    work["eligible_lt75"] = pd.to_numeric(work["eligible_lt75"], errors="coerce")
+    work["eligible_lt90"] = np.where(pd.to_numeric(work["r_value"], errors="coerce") < 90.0, 1.0, 0.0)
+    work["post2014"] = (work["year"] >= 2014).astype(float)
+    work["eu_mean_erdf_t"] = work.groupby("year", sort=False)["erdf_eur_pc"].transform("mean")
+    work["country_mean_erdf_t_loo"] = _build_leave_one_out_country_mean(work, "erdf_eur_pc")
+
+    work["z1_post75"] = work["eligible_lt75"] * work["post2014"]
+    work["z2_eu75"] = work["eligible_lt75"] * work["eu_mean_erdf_t"]
+    work["z3_country75"] = work["eligible_lt75"] * work["country_mean_erdf_t_loo"]
+    work["z5_eu90"] = work["eligible_lt90"] * work["eu_mean_erdf_t"]
+
+    rows: List[Dict[str, object]] = []
+    panel_candidates = [
+        ("Z1", "eligible_lt75 × post2014", "z1_post75"),
+        ("Z2", "eligible_lt75 × eu_mean_erdf_t", "z2_eu75"),
+        ("Z3", "eligible_lt75 × country_mean_erdf_t_loo", "z3_country75"),
+        ("Z5", "eligible_lt90 × eu_mean_erdf_t", "z5_eu90"),
+    ]
+    for candidate_id, label, instrument in panel_candidates:
+        rows.append(
+            _first_stage_ols_diagnostic(
+                data=work,
+                endog="erdf_eur_pc_l1",
+                instrument=instrument,
+                controls=controls,
+                fe_terms=["C(nuts2_id)", "C(year)"],
+                cluster_col="nuts2_id",
+                candidate_id=candidate_id,
+                candidate_label=label,
+                sample_type="panel",
+                spec_name="region_FE + year_FE",
+                require_within_variation_by="nuts2_id",
+            )
+        )
+
+    # Region-level (cross-sectional) candidates for cumulative exposure.
+    region = region_df.copy()
+    region["eligible_lt75"] = pd.to_numeric(region["eligible_lt75"], errors="coerce")
+    region["eligible_lt90"] = np.where(pd.to_numeric(region["r_value"], errors="coerce") < 90.0, 1.0, 0.0)
+
+    cross_controls = [
+        "log_gdp_pc_real_pre_2010_2013",
+        "unemp_rate_pre_2010_2013",
+        "emp_rate_pre_2010_2013",
+    ]
+    available_cross_controls = [column for column in cross_controls if column in region.columns]
+
+    for endog in ["erdf_eur_pc_cum_2014_2020", "erdf_eur_pc_cum_2015_2020"]:
+        if endog not in region.columns:
+            continue
+        rows.append(
+            _first_stage_ols_diagnostic(
+                data=region,
+                endog=endog,
+                instrument="eligible_lt75",
+                controls=available_cross_controls,
+                fe_terms=["C(country)"],
+                cluster_col=None,
+                candidate_id="Z4_75",
+                candidate_label="eligible_lt75 (cross-section cumulative exposure)",
+                sample_type="cross_section",
+                spec_name="country_FE + pre_controls",
+                require_within_variation_by=None,
+            )
+        )
+        rows.append(
+            _first_stage_ols_diagnostic(
+                data=region,
+                endog=endog,
+                instrument="eligible_lt90",
+                controls=available_cross_controls,
+                fe_terms=["C(country)"],
+                cluster_col=None,
+                candidate_id="Z4_90",
+                candidate_label="eligible_lt90 (cross-section cumulative exposure)",
+                sample_type="cross_section",
+                spec_name="country_FE + pre_controls",
+                require_within_variation_by=None,
+            )
+        )
+
+    candidates = pd.DataFrame(rows)
+    if candidates.empty:
+        return candidates
+
+    candidates = candidates.sort_values(
+        ["status", "f_stat", "sample_type", "candidate_id"],
+        ascending=[True, False, True, True],
+    ).reset_index(drop=True)
+    return candidates
+
+
+def _select_headline_iv_candidate(candidates: pd.DataFrame) -> Optional[Dict[str, object]]:
+    if candidates.empty:
+        return None
+
+    valid = candidates[(candidates["status"] == "ok") & pd.to_numeric(candidates["f_stat"], errors="coerce").notna()].copy()
+    if valid.empty:
+        return None
+
+    valid["f_stat"] = pd.to_numeric(valid["f_stat"], errors="coerce")
+    # Prefer stronger first stages; break ties by sample type (cross-section cumulative is less rank-sensitive here).
+    valid["sample_priority"] = np.where(valid["sample_type"] == "cross_section", 0, 1)
+    best = valid.sort_values(["f_stat", "sample_priority"], ascending=[False, True]).iloc[0]
+    return best.to_dict()
+
+
+def run_panel_iv_with_instrument_v31(
+    panel: pd.DataFrame,
+    outcome: str,
+    instrument_var: str,
+    controls: Sequence[str],
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    required = [
+        "nuts2_id",
+        "country",
+        "year",
+        outcome,
+        "erdf_eur_pc_l1",
+        instrument_var,
+        *controls,
+    ]
+    missing = sorted(set(required) - set(panel.columns))
+    if missing:
+        raise ValueError(
+            f"Panel IV missing columns: {', '.join(missing)}. "
+            "These should come from processed panel and constructed instrument features."
+        )
+
+    sample = panel[required].dropna().copy()
+    if sample.empty:
+        raise ValueError("Panel IV sample is empty after dropping missing values.")
+
+    formula = (
+        f"{outcome} ~ 1 + {' + '.join(controls + ['C(nuts2_id)', 'C(year)'])} "
+        f"[erdf_eur_pc_l1 ~ {instrument_var}]"
+    )
+
+    iv_fit = IV2SLS.from_formula(formula=formula, data=sample).fit(
+        cov_type="clustered",
+        clusters=pd.DataFrame({"nuts2_cluster": pd.Categorical(sample["nuts2_id"]).codes}, index=sample.index),
+    )
+
+    ci = iv_fit.conf_int(level=0.95).loc["erdf_eur_pc_l1"]
+    first_stage_f = _extract_first_stage_f_stat(getattr(iv_fit.first_stage, "diagnostics", None))
+
+    iv_table = pd.DataFrame(
+        [
+            {
+                "outcome": outcome,
+                "model": "IV 2SLS panel (selected candidate)",
+                "sample_type": "panel",
+                "term": "erdf_eur_pc_l1",
+                "instrument": instrument_var,
+                "coef": float(iv_fit.params["erdf_eur_pc_l1"]),
+                "std_err": float(iv_fit.std_errors["erdf_eur_pc_l1"]),
+                "t_stat": float(iv_fit.tstats["erdf_eur_pc_l1"]),
+                "p_value": float(iv_fit.pvalues["erdf_eur_pc_l1"]),
+                "ci_95_lower": float(ci.iloc[0]),
+                "ci_95_upper": float(ci.iloc[1]),
+                "first_stage_f_stat": first_stage_f,
+                "n_obs": int(iv_fit.nobs),
+                "n_regions": int(sample["nuts2_id"].nunique()),
+                "sample_year_min": int(sample["year"].min()),
+                "sample_year_max": int(sample["year"].max()),
+                "controls_used": ",".join(controls),
+                "fe_spec": "region_FE + year_FE",
+            }
+        ]
+    )
+
+    fs_diag = getattr(iv_fit.first_stage, "diagnostics", None)
+    first_stage_table = pd.DataFrame()
+    if isinstance(fs_diag, pd.DataFrame) and not fs_diag.empty:
+        fs_row = fs_diag.iloc[0]
+        first_stage_table = pd.DataFrame(
+            [
+                {
+                    "endogenous_var": "erdf_eur_pc_l1",
+                    "instrument_var": instrument_var,
+                    "rsquared": float(pd.to_numeric(fs_row.get("rsquared"), errors="coerce")),
+                    "partial_r2": float(pd.to_numeric(fs_row.get("partial.rsquared"), errors="coerce")),
+                    "f_stat": float(pd.to_numeric(fs_row.get("f.stat"), errors="coerce")),
+                    "f_pvalue": float(pd.to_numeric(fs_row.get("f.pval"), errors="coerce")),
+                    "n_obs": int(sample.shape[0]),
+                    "sample_type": "panel",
+                    "fe_spec": "region_FE + year_FE",
+                }
+            ]
+        )
+
+    return iv_table, first_stage_table
+
+
+def run_cross_section_iv_v31(
+    region_df: pd.DataFrame,
+    instrument_var: str,
+    endog_var: str,
+    controls: Sequence[str],
+    headline_outcome: str,
+    pps_outcome: Optional[str],
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    work = region_df.copy()
+    if instrument_var == "eligible_lt90" and "eligible_lt90" not in work.columns:
+        work["eligible_lt90"] = np.where(pd.to_numeric(work["r_value"], errors="coerce") < 90.0, 1.0, 0.0)
+
+    outcomes = [
+        (headline_outcome, f"{headline_outcome}_post_2016_2020"),
+        (headline_outcome, f"{headline_outcome}_post_2021_2023"),
+    ]
+    if pps_outcome is not None:
+        outcomes.extend(
+            [
+                (pps_outcome, f"{pps_outcome}_post_2016_2020"),
+                (pps_outcome, f"{pps_outcome}_post_2021_2023"),
+            ]
+        )
+
+    results_rows: List[Dict[str, object]] = []
+    first_stage_rows: List[Dict[str, object]] = []
+    scatter_source: Optional[pd.DataFrame] = None
+
+    for outcome_label, outcome_col in outcomes:
+        if outcome_col not in region_df.columns:
+            continue
+
+        required = ["nuts2_id", "country", outcome_col, endog_var, instrument_var, *controls]
+        sample = work[required].dropna().copy()
+        if sample.empty:
+            continue
+
+        rhs_controls = [*controls, "C(country)"]
+        rhs = " + ".join(rhs_controls)
+        formula = (
+            f"{outcome_col} ~ 1 + {rhs} "
+            f"[{endog_var} ~ {instrument_var}]"
+        )
+
+        try:
+            iv_fit = IV2SLS.from_formula(formula=formula, data=sample).fit(cov_type="robust")
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.warning("Cross-section IV failed for %s: %s", outcome_col, exc)
+            continue
+
+        ci = iv_fit.conf_int(level=0.95).loc[endog_var]
+        first_stage_f = _extract_first_stage_f_stat(getattr(iv_fit.first_stage, "diagnostics", None))
+
+        results_rows.append(
+            {
+                "outcome": outcome_label,
+                "window": outcome_col.replace(f"{outcome_label}_", ""),
+                "model": "IV 2SLS cross-section (selected candidate)",
+                "sample_type": "cross_section",
+                "term": endog_var,
+                "instrument": instrument_var,
+                "coef": float(iv_fit.params[endog_var]),
+                "std_err": float(iv_fit.std_errors[endog_var]),
+                "t_stat": float(iv_fit.tstats[endog_var]),
+                "p_value": float(iv_fit.pvalues[endog_var]),
+                "ci_95_lower": float(ci.iloc[0]),
+                "ci_95_upper": float(ci.iloc[1]),
+                "first_stage_f_stat": first_stage_f,
+                "n_obs": int(iv_fit.nobs),
+                "n_regions": int(sample["nuts2_id"].nunique()),
+                "controls_used": ",".join(controls),
+                "fe_spec": "country_FE",
+            }
+        )
+
+        fs_diag = getattr(iv_fit.first_stage, "diagnostics", None)
+        if isinstance(fs_diag, pd.DataFrame) and not fs_diag.empty:
+            fs_row = fs_diag.iloc[0]
+            first_stage_rows.append(
+                {
+                    "outcome": outcome_label,
+                    "window": outcome_col.replace(f"{outcome_label}_", ""),
+                    "endogenous_var": endog_var,
+                    "instrument_var": instrument_var,
+                    "rsquared": float(pd.to_numeric(fs_row.get("rsquared"), errors="coerce")),
+                    "partial_r2": float(pd.to_numeric(fs_row.get("partial.rsquared"), errors="coerce")),
+                    "f_stat": float(pd.to_numeric(fs_row.get("f.stat"), errors="coerce")),
+                    "f_pvalue": float(pd.to_numeric(fs_row.get("f.pval"), errors="coerce")),
+                    "n_obs": int(sample.shape[0]),
+                    "sample_type": "cross_section",
+                    "fe_spec": "country_FE",
+                }
+            )
+
+        if scatter_source is None and outcome_label == headline_outcome and outcome_col.endswith("post_2016_2020"):
+            try:
+                fs_fit = smf.ols(
+                    f"{endog_var} ~ {instrument_var} + {' + '.join(rhs_controls)}",
+                    data=sample,
+                ).fit()
+                scatter_source = pd.DataFrame(
+                    {
+                        "actual_exposure": sample[endog_var].astype(float),
+                        "fitted_exposure": fs_fit.fittedvalues.astype(float),
+                    }
+                )
+            except Exception:  # noqa: BLE001
+                scatter_source = pd.DataFrame(columns=["actual_exposure", "fitted_exposure"])
+
+    return pd.DataFrame(results_rows), pd.DataFrame(first_stage_rows), (
+        scatter_source
+        if scatter_source is not None
+        else pd.DataFrame(columns=["actual_exposure", "fitted_exposure"])
+    )
+
+
+def run_rd_funding_jump_v31(
+    region_df: pd.DataFrame,
+    bandwidths: Sequence[float],
+) -> pd.DataFrame:
+    rows: List[Dict[str, object]] = []
+    treatment_sd = float(pd.to_numeric(region_df["erdf_eur_pc_cum_2014_2020"], errors="coerce").std())
+
+    for bw in bandwidths:
+        try:
+            est = estimate_sharp_rd(
+                region_df=region_df,
+                outcome="erdf_eur_pc_cum_2014_2020",
+                window="funding_jump",
+                bandwidth=float(bw),
+            )
+            f_stat = float(est.t_stat**2)
+            rows.append(
+                {
+                    "bandwidth": float(bw),
+                    "jump_coef": est.coef,
+                    "std_err": est.std_err,
+                    "t_stat": est.t_stat,
+                    "p_value": est.p_value,
+                    "ci_95_lower": est.ci_95_lower,
+                    "ci_95_upper": est.ci_95_upper,
+                    "n_obs": est.n_obs,
+                    "n_left": est.n_left,
+                    "n_right": est.n_right,
+                    "first_stage_f_stat": f_stat,
+                    "jump_over_sd": est.coef / treatment_sd if treatment_sd > 0 else np.nan,
+                }
+            )
+        except Exception as exc:  # noqa: BLE001
+            rows.append(
+                {
+                    "bandwidth": float(bw),
+                    "jump_coef": np.nan,
+                    "std_err": np.nan,
+                    "t_stat": np.nan,
+                    "p_value": np.nan,
+                    "ci_95_lower": np.nan,
+                    "ci_95_upper": np.nan,
+                    "n_obs": 0,
+                    "n_left": 0,
+                    "n_right": 0,
+                    "first_stage_f_stat": np.nan,
+                    "jump_over_sd": np.nan,
+                    "error": str(exc),
+                }
+            )
+
+    table = pd.DataFrame(rows).sort_values("bandwidth").reset_index(drop=True)
+    pvals = pd.to_numeric(table["p_value"], errors="coerce")
+    econ = pd.to_numeric(table["jump_over_sd"], errors="coerce").abs()
+    fstats = pd.to_numeric(table["first_stage_f_stat"], errors="coerce")
+
+    near_zero = bool((pvals > 0.10).fillna(True).all() and (econ < 0.20).fillna(True).all())
+    weak_f = bool((fstats < 10).fillna(True).all())
+    table["fuzzy_rd_viable"] = not (near_zero or weak_f)
+    table["viability_reason"] = np.where(
+        table["fuzzy_rd_viable"],
+        "funding jump strong enough for fuzzy RD",
+        np.where(
+            near_zero,
+            "funding jump statistically/economically near zero across bandwidths",
+            "funding jump imprecise/weak (first-stage F below 10)",
+        ),
+    )
+    return table
+
+
+def run_sharp_rd_outcomes_v31(
+    region_df: pd.DataFrame,
+    headline_outcome: str,
+    pps_outcome: Optional[str],
+    bandwidths: Sequence[float],
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    outcomes = [headline_outcome]
+    if pps_outcome is not None and pps_outcome not in outcomes:
+        outcomes.append(pps_outcome)
+
+    baseline_bw = 10.0
+    baseline_rows: List[Dict[str, object]] = []
+    sensitivity_rows: List[Dict[str, object]] = []
+    placebo_rows: List[Dict[str, object]] = []
+
+    for outcome in outcomes:
+        for window in ["post_2016_2020", "post_2021_2023"]:
+            outcome_col = f"{outcome}_{window}"
+            if outcome_col not in region_df.columns:
+                continue
+            for bw in bandwidths:
+                try:
+                    est = estimate_sharp_rd(
+                        region_df=region_df,
+                        outcome=outcome_col,
+                        window=window,
+                        bandwidth=float(bw),
+                    )
+                    row = {
+                        "outcome": outcome,
+                        "window": window,
+                        "bandwidth": float(bw),
+                        "coef": est.coef,
+                        "std_err": est.std_err,
+                        "t_stat": est.t_stat,
+                        "p_value": est.p_value,
+                        "ci_95_lower": est.ci_95_lower,
+                        "ci_95_upper": est.ci_95_upper,
+                        "n_obs": est.n_obs,
+                        "n_left": est.n_left,
+                        "n_right": est.n_right,
+                        "interpretation": "eligibility ITT effect (sharp RD at 75 cutoff)",
+                    }
+                    sensitivity_rows.append(row)
+                    if np.isclose(float(bw), baseline_bw):
+                        baseline_rows.append(row)
+                except Exception as exc:  # noqa: BLE001
+                    LOGGER.warning(
+                        "Sharp RD skipped for outcome=%s, window=%s, bw=%s: %s",
+                        outcome,
+                        window,
+                        bw,
+                        exc,
+                    )
+
+    placebo_col = f"{headline_outcome}_pre_2010_2013"
+    if placebo_col in region_df.columns:
+        try:
+            placebo = estimate_sharp_rd(
+                region_df=region_df,
+                outcome=placebo_col,
+                window="pre_2010_2013",
+                bandwidth=baseline_bw,
+            )
+            placebo_rows.append(
+                {
+                    "outcome": headline_outcome,
+                    "window": "pre_2010_2013",
+                    "bandwidth": baseline_bw,
+                    "coef": placebo.coef,
+                    "std_err": placebo.std_err,
+                    "t_stat": placebo.t_stat,
+                    "p_value": placebo.p_value,
+                    "ci_95_lower": placebo.ci_95_lower,
+                    "ci_95_upper": placebo.ci_95_upper,
+                    "n_obs": placebo.n_obs,
+                    "n_left": placebo.n_left,
+                    "n_right": placebo.n_right,
+                    "interpretation": "placebo pretrend jump should be near zero",
+                }
+            )
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.warning("Sharp RD placebo failed: %s", exc)
+
+    baseline_table = pd.DataFrame(baseline_rows).sort_values(["outcome", "window"]).reset_index(drop=True)
+    sensitivity_table = pd.DataFrame(sensitivity_rows).sort_values(
+        ["outcome", "window", "bandwidth"]
+    ).reset_index(drop=True)
+    placebo_table = pd.DataFrame(placebo_rows)
+
+    return baseline_table, sensitivity_table, placebo_table
+
+
+def _plot_first_stage_scatter_png(first_stage_scatter: pd.DataFrame, output_path: Path) -> None:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(8.5, 6))
+    if first_stage_scatter.empty:
+        ax.text(0.5, 0.5, "No first-stage scatter data", ha="center", va="center")
+        ax.set_axis_off()
+    else:
+        x = pd.to_numeric(first_stage_scatter["fitted_exposure"], errors="coerce")
+        y = pd.to_numeric(first_stage_scatter["actual_exposure"], errors="coerce")
+        ax.scatter(x, y, alpha=0.75, color="#0f766e", edgecolor="white", linewidth=0.4)
+        if x.notna().sum() >= 3 and y.notna().sum() >= 3:
+            coeff = np.polyfit(x.fillna(x.mean()), y.fillna(y.mean()), deg=1)
+            grid = np.linspace(float(x.min()), float(x.max()), 100)
+            ax.plot(grid, coeff[0] * grid + coeff[1], color="#c2410c", linewidth=2)
+        ax.set_xlabel("First-stage fitted cumulative ERDF per capita")
+        ax.set_ylabel("Observed cumulative ERDF per capita")
+        ax.grid(alpha=0.25)
+    ax.set_title("IV first stage: observed vs fitted exposure")
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=180)
+    plt.close(fig)
+
+
+def _get_git_commit_short() -> str:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=config.PROJECT_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return result.stdout.strip() or "unknown"
+    except Exception:  # noqa: BLE001
+        return "unknown"
+
+
+def _table_widget_html(table_id: str, df: pd.DataFrame, max_rows: int = 250) -> str:
+    if df.empty:
+        return "<div class='empty-table'>No rows available.</div>"
+
+    preview = df.head(max_rows).copy()
+    table_html = preview.to_html(
+        index=False,
+        classes="dyn-table",
+        border=0,
+        table_id=table_id,
+    )
+    return (
+        f"<div class='table-card'>"
+        f"<div class='table-toolbar'>"
+        f"<input id='{table_id}_search' class='table-search' type='text' placeholder='Search rows...' />"
+        f"<span class='table-note'>Rows shown: {len(preview)} / {len(df)}</span>"
+        f"</div>{table_html}</div>"
+    )
+
+
+def create_html_report_v31(
+    headline_outcome: str,
+    preferred_estimator_label: str,
+    preferred_estimator_note: str,
+    overview: pd.DataFrame,
+    panel: pd.DataFrame,
+    missingness: pd.DataFrame,
+    twfe_main: pd.DataFrame,
+    dl_lags: pd.DataFrame,
+    dynamic_lag: pd.DataFrame,
+    rd_funding_jump: pd.DataFrame,
+    rd_outcome_sharp: pd.DataFrame,
+    rd_bandwidth: pd.DataFrame,
+    rd_placebo: pd.DataFrame,
+    iv_candidates: pd.DataFrame,
+    iv_panel: pd.DataFrame,
+    iv_cross: pd.DataFrame,
+    robustness_summary: pd.DataFrame,
+    sigma: pd.DataFrame,
+    beta: pd.DataFrame,
+    model_comparison: pd.DataFrame,
+    first_stage_scatter: pd.DataFrame,
+) -> Dict[str, List[str]]:
+    run_ts = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+    git_hash = _get_git_commit_short()
+
+    n_regions = int(panel["nuts2_id"].nunique())
+    min_year = int(panel["year"].min())
+    max_year = int(panel["year"].max())
+
+    iv_headline_df = iv_cross[
+        (iv_cross["outcome"] == headline_outcome)
+        & (iv_cross["window"] == "post_2016_2020")
+    ]
+    if iv_headline_df.empty and not iv_cross.empty:
+        iv_headline_df = iv_cross.head(1)
+    if iv_headline_df.empty and not iv_panel.empty:
+        iv_headline_df = iv_panel.head(1)
+
+    if not iv_headline_df.empty:
+        iv_headline = iv_headline_df.iloc[0]
+        kpi_headline_coef = float(iv_headline["coef"])
+        kpi_headline_p = float(iv_headline["p_value"])
+        kpi_headline_f = float(iv_headline["first_stage_f_stat"])
+    else:
+        kpi_headline_coef = np.nan
+        kpi_headline_p = np.nan
+        kpi_headline_f = np.nan
+
+    weak_iv_warning = bool(np.isnan(kpi_headline_f) or kpi_headline_f < 10.0)
+
+    sample_by_year = (
+        panel.groupby("year", as_index=False)
+        .agg(
+            n_rows=("nuts2_id", "size"),
+            n_regions=("nuts2_id", "nunique"),
+            headline_non_missing=(headline_outcome, lambda s: int(s.notna().sum())),
+        )
+        .sort_values("year")
+    )
+    sample_by_country = (
+        panel.groupby("country", as_index=False)
+        .agg(
+            n_regions=("nuts2_id", "nunique"),
+            n_rows=("nuts2_id", "size"),
+            headline_non_missing=(headline_outcome, lambda s: int(s.notna().sum())),
+        )
+        .sort_values("n_regions", ascending=False)
+    )
+
+    twfe_headline = twfe_main[
+        (twfe_main["outcome"] == headline_outcome)
+        & (twfe_main["model"].isin(["Model A", "Model B"]))
+    ].copy()
+    dl_headline = dl_lags[
+        (dl_lags["outcome"] == headline_outcome)
+        & (dl_lags["model"] == "Model C")
+    ].copy()
+
+    # Interactive figures
+    include_js = True
+    charts: Dict[str, str] = {}
+
+    fig_coverage = go.Figure()
+    fig_coverage.add_trace(
+        go.Bar(
+            x=sample_by_year["year"],
+            y=sample_by_year["n_regions"],
+            name="Regions",
+            marker_color="#0f766e",
+        )
+    )
+    fig_coverage.add_trace(
+        go.Scatter(
+            x=sample_by_year["year"],
+            y=sample_by_year["headline_non_missing"],
+            name=f"Non-missing {headline_outcome}",
+            mode="lines+markers",
+            yaxis="y2",
+            line={"color": "#c2410c", "width": 2},
+        )
+    )
+    fig_coverage.update_layout(
+        title="Coverage by year",
+        template="plotly_white",
+        margin={"l": 40, "r": 40, "t": 45, "b": 40},
+        yaxis={"title": "Regions"},
+        yaxis2={"title": "Rows with headline outcome", "overlaying": "y", "side": "right"},
+        height=300,
+        legend={"orientation": "h"},
+    )
+    charts["coverage"] = _plotly_block(fig_coverage, include_js=include_js)
+    include_js = False
+
+    key_vars = [
+        "erdf_eur_pc",
+        "erdf_eur_pc_l1",
+        "gdp_pc_real_growth",
+        "gdp_pc_pps_growth",
+        "unemp_rate",
+        "emp_rate",
+    ]
+    heat = missingness[missingness["variable"].isin(key_vars)].copy()
+    if not heat.empty:
+        heat_pivot = heat.pivot(index="variable", columns="year", values="missing_share").sort_index()
+        fig_heat = go.Figure(
+            data=go.Heatmap(
+                z=heat_pivot.values,
+                x=heat_pivot.columns.astype(int),
+                y=heat_pivot.index.tolist(),
+                colorscale="YlOrRd",
+                zmin=0,
+                zmax=1,
+                colorbar={"title": "Missing share"},
+            )
+        )
+        fig_heat.update_layout(
+            title="Missingness heatmap (key variables)",
+            template="plotly_white",
+            margin={"l": 40, "r": 20, "t": 45, "b": 40},
+            height=320,
+        )
+        charts["missing_heat"] = _plotly_block(fig_heat, include_js=include_js)
+    else:
+        charts["missing_heat"] = "<div class='empty-chart'>Missingness heatmap unavailable.</div>"
+
+    fig_dynamic = go.Figure()
+    if not dynamic_lag.empty:
+        dyn = dynamic_lag.sort_values("horizon")
+        fig_dynamic.add_trace(
+            go.Scatter(
+                x=dyn["horizon"],
+                y=dyn["coef"],
+                mode="lines+markers",
+                error_y={"type": "data", "array": 1.96 * pd.to_numeric(dyn["std_err"], errors="coerce")},
+                line={"color": "#0f766e", "width": 2},
+                name="Lag response",
+            )
+        )
+    fig_dynamic.add_hline(y=0, line_dash="dash", line_color="#64748b")
+    fig_dynamic.update_layout(
+        title="Dynamic lag response",
+        template="plotly_white",
+        margin={"l": 40, "r": 20, "t": 45, "b": 40},
+        height=300,
+        xaxis_title="Lag horizon",
+        yaxis_title="Coefficient",
+    )
+    charts["dynamic"] = _plotly_block(fig_dynamic, include_js=include_js)
+
+    fig_rd_fs = go.Figure()
+    if not rd_funding_jump.empty:
+        fs = rd_funding_jump.sort_values("bandwidth")
+        fig_rd_fs.add_trace(
+            go.Scatter(
+                x=fs["bandwidth"],
+                y=fs["jump_coef"],
+                mode="lines+markers",
+                error_y={"type": "data", "array": 1.96 * pd.to_numeric(fs["std_err"], errors="coerce")},
+                name="Funding jump",
+                line={"color": "#c2410c", "width": 2},
+            )
+        )
+    fig_rd_fs.add_hline(y=0, line_dash="dash", line_color="#64748b")
+    fig_rd_fs.update_layout(
+        title="RD first stage: funding discontinuity at 75 cutoff",
+        template="plotly_white",
+        margin={"l": 40, "r": 20, "t": 45, "b": 40},
+        height=300,
+        xaxis_title="Bandwidth",
+        yaxis_title="Jump in cumulative ERDF pc",
+    )
+    charts["rd_funding"] = _plotly_block(fig_rd_fs, include_js=include_js)
+
+    fig_rd_outcome = go.Figure()
+    if not rd_bandwidth.empty:
+        plot_df = rd_bandwidth[
+            (rd_bandwidth["outcome"] == headline_outcome)
+            & (rd_bandwidth["window"] == "post_2016_2020")
+        ].copy()
+        if not plot_df.empty:
+            fig_rd_outcome.add_trace(
+                go.Scatter(
+                    x=plot_df["bandwidth"],
+                    y=plot_df["coef"],
+                    mode="lines+markers",
+                    error_y={"type": "data", "array": 1.96 * pd.to_numeric(plot_df["std_err"], errors="coerce")},
+                    line={"color": "#0f766e", "width": 2},
+                    name="Eligibility ITT",
+                )
+            )
+    fig_rd_outcome.add_hline(y=0, line_dash="dash", line_color="#64748b")
+    fig_rd_outcome.update_layout(
+        title="RD outcome sensitivity (sharp RD ITT)",
+        template="plotly_white",
+        margin={"l": 40, "r": 20, "t": 45, "b": 40},
+        height=300,
+        xaxis_title="Bandwidth",
+        yaxis_title=f"{headline_outcome} jump",
+    )
+    charts["rd_outcome"] = _plotly_block(fig_rd_outcome, include_js=include_js)
+
+    fig_iv_scatter = go.Figure()
+    if not first_stage_scatter.empty:
+        fig_iv_scatter.add_trace(
+            go.Scatter(
+                x=first_stage_scatter["fitted_exposure"],
+                y=first_stage_scatter["actual_exposure"],
+                mode="markers",
+                marker={"color": "#0f766e", "size": 7, "opacity": 0.7},
+                name="Regions",
+            )
+        )
+        x = pd.to_numeric(first_stage_scatter["fitted_exposure"], errors="coerce")
+        y = pd.to_numeric(first_stage_scatter["actual_exposure"], errors="coerce")
+        if x.notna().sum() >= 3 and y.notna().sum() >= 3:
+            coeff = np.polyfit(x.fillna(x.mean()), y.fillna(y.mean()), 1)
+            grid = np.linspace(float(x.min()), float(x.max()), 120)
+            fig_iv_scatter.add_trace(
+                go.Scatter(
+                    x=grid,
+                    y=coeff[0] * grid + coeff[1],
+                    mode="lines",
+                    line={"color": "#c2410c", "width": 2},
+                    name="Linear fit",
+                )
+            )
+    fig_iv_scatter.update_layout(
+        title="IV first stage: observed vs fitted cumulative exposure",
+        template="plotly_white",
+        margin={"l": 40, "r": 20, "t": 45, "b": 40},
+        height=300,
+        xaxis_title="First-stage fitted exposure",
+        yaxis_title="Observed cumulative exposure",
+    )
+    charts["iv_scatter"] = _plotly_block(fig_iv_scatter, include_js=include_js)
+
+    fig_sigma = go.Figure()
+    for col, label, color in [
+        ("sigma_log_gdp_real", "Sigma real", "#0f766e"),
+        ("sigma_log_gdp_pps", "Sigma PPS", "#c2410c"),
+        ("sigma_log_gdp_nominal", "Sigma nominal", "#334155"),
+    ]:
+        if col in sigma.columns and pd.to_numeric(sigma[col], errors="coerce").notna().any():
+            fig_sigma.add_trace(
+                go.Scatter(
+                    x=sigma["year"],
+                    y=pd.to_numeric(sigma[col], errors="coerce"),
+                    mode="lines+markers",
+                    name=label,
+                    line={"width": 2, "color": color},
+                )
+            )
+    fig_sigma.add_vrect(
+        x0=2014, x1=2020, fillcolor="rgba(15,118,110,0.12)", line_width=0, annotation_text="2014-2020"
+    )
+    fig_sigma.update_layout(
+        title="Sigma convergence",
+        template="plotly_white",
+        margin={"l": 40, "r": 20, "t": 45, "b": 40},
+        height=300,
+    )
+    charts["sigma"] = _plotly_block(fig_sigma, include_js=include_js)
+
+    # Table blocks
+    table_overview = _table_widget_html("tbl_overview", overview)
+    table_year = _table_widget_html("tbl_year", sample_by_year)
+    table_country = _table_widget_html("tbl_country", sample_by_country)
+    table_twfe = _table_widget_html("tbl_twfe", twfe_headline)
+    table_dl = _table_widget_html("tbl_dl", dl_headline)
+    table_rd_fs = _table_widget_html("tbl_rd_fs", rd_funding_jump)
+    table_rd_main = _table_widget_html("tbl_rd_main", rd_outcome_sharp)
+    table_rd_placebo = _table_widget_html("tbl_rd_placebo", rd_placebo)
+    table_iv_candidates = _table_widget_html("tbl_iv_candidates", iv_candidates)
+    table_iv_panel = _table_widget_html("tbl_iv_panel", iv_panel)
+    table_iv_cross = _table_widget_html("tbl_iv_cross", iv_cross)
+    table_robust = _table_widget_html("tbl_robust", robustness_summary)
+    table_beta = _table_widget_html("tbl_beta", beta)
+    table_model_comp = _table_widget_html("tbl_model_comp", model_comparison)
+
+    weak_banner = (
+        "<div class='warn-banner'>Weak-instrument warning: selected first-stage F is below 10.</div>"
+        if weak_iv_warning
+        else "<div class='ok-banner'>Selected instrument passes the F ≥ 10 threshold.</div>"
+    )
+
+    html = f"""
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>EU Cohesion V3.1 Report</title>
+  <style>
+    :root {{
+      --bg: #f4f7f6;
+      --card: #ffffff;
+      --ink: #0f172a;
+      --muted: #475569;
+      --line: #dbe4e6;
+      --brand: #0f766e;
+      --brand-2: #c2410c;
+      --warn: #9f1239;
+      --shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+    }}
+    * {{ box-sizing: border-box; }}
+    html, body {{ height: 100%; margin: 0; overflow: hidden; font-family: "Avenir Next", "Trebuchet MS", "Segoe UI", sans-serif; color: var(--ink); background: var(--bg); }}
+    .app {{ display: grid; grid-template-rows: auto auto 1fr; height: 100%; }}
+    .header {{
+      background: linear-gradient(130deg, #0f766e, #14532d);
+      color: #ecfeff;
+      padding: 12px 20px;
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+      box-shadow: var(--shadow);
+    }}
+    .title {{ font-size: 1.2rem; font-weight: 700; }}
+    .meta {{ font-size: 0.86rem; opacity: 0.95; }}
+    .tabs {{
+      display: flex;
+      gap: 8px;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--line);
+      background: #f8fafc;
+      flex-wrap: wrap;
+    }}
+    .tab-btn {{
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--muted);
+      border-radius: 999px;
+      padding: 7px 12px;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }}
+    .tab-btn.active {{ background: var(--brand); border-color: var(--brand); color: #fff; }}
+    .content {{ position: relative; height: 100%; }}
+    .tab-panel {{
+      display: none;
+      position: absolute;
+      inset: 0;
+      overflow: auto;
+      padding: 14px;
+    }}
+    .tab-panel.active {{ display: block; }}
+    .grid {{ display: grid; gap: 12px; }}
+    .grid-2 {{ grid-template-columns: 1fr 1fr; }}
+    .grid-3 {{ grid-template-columns: repeat(3, 1fr); }}
+    .card {{
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+      padding: 12px;
+    }}
+    .card h3 {{ margin: 0 0 8px; font-size: 0.98rem; }}
+    .kpi-grid {{ display: grid; grid-template-columns: repeat(5, minmax(140px, 1fr)); gap: 10px; }}
+    .kpi {{ background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 10px; }}
+    .kpi .label {{ font-size: 0.78rem; color: var(--muted); margin-bottom: 4px; }}
+    .kpi .value {{ font-size: 1.06rem; font-weight: 700; }}
+    .muted {{ color: var(--muted); font-size: 0.9rem; }}
+    .warn-banner, .ok-banner {{ border-radius: 10px; padding: 8px 10px; font-size: 0.88rem; margin-bottom: 8px; }}
+    .warn-banner {{ background: #fff1f2; color: var(--warn); border: 1px solid #fecdd3; }}
+    .ok-banner {{ background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }}
+    .table-card {{ border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #fff; }}
+    .table-toolbar {{ display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 8px; border-bottom: 1px solid var(--line); background: #f8fafc; }}
+    .table-search {{ width: 220px; max-width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font-size: 0.82rem; }}
+    .table-note {{ font-size: 0.76rem; color: var(--muted); }}
+    table.dyn-table {{ width: 100%; border-collapse: collapse; font-size: 0.78rem; }}
+    table.dyn-table th, table.dyn-table td {{ border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: left; }}
+    table.dyn-table th {{ position: sticky; top: 0; background: #eefaf8; cursor: pointer; user-select: none; z-index: 1; }}
+    .empty-table, .empty-chart {{ color: var(--muted); padding: 12px; border: 1px dashed var(--line); border-radius: 8px; background: #fff; }}
+    .spec-box {{ background: #f8fafc; border: 1px solid var(--line); border-radius: 10px; padding: 10px; font-size: 0.86rem; }}
+    details {{ border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: #fff; }}
+    details + details {{ margin-top: 8px; }}
+    summary {{ cursor: pointer; font-weight: 600; }}
+    @media (max-width: 1200px) {{
+      .grid-2, .grid-3, .kpi-grid {{ grid-template-columns: 1fr; }}
+      .table-search {{ width: 140px; }}
+    }}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div class="title">EU Cohesion Policy V3.1 Identification Report</div>
+      <div class="meta">Run: {run_ts} | Commit: {git_hash}</div>
+    </header>
+    <nav class="tabs">
+      <button class="tab-btn active" data-tab="overview">Overview</button>
+      <button class="tab-btn" data-tab="data">Data & Coverage</button>
+      <button class="tab-btn" data-tab="twfe">TWFE</button>
+      <button class="tab-btn" data-tab="rd">RD</button>
+      <button class="tab-btn" data-tab="iv">IV</button>
+      <button class="tab-btn" data-tab="robustness">Robustness</button>
+      <button class="tab-btn" data-tab="convergence">Convergence</button>
+      <button class="tab-btn" data-tab="limits">Limitations & Next steps</button>
+    </nav>
+    <main class="content">
+      <section class="tab-panel active" id="tab-overview">
+        <div class="grid">
+          <div class="card">
+            <h3>Executive Summary</h3>
+            <p class="muted">
+              Preferred estimator: <strong>{preferred_estimator_label}</strong>. {preferred_estimator_note}
+              Headline outcome is <strong>{headline_outcome}</strong>.
+            </p>
+            <div class="kpi-grid">
+              <div class="kpi"><div class="label">Regions</div><div class="value">{n_regions}</div></div>
+              <div class="kpi"><div class="label">Year span</div><div class="value">{min_year}-{max_year}</div></div>
+              <div class="kpi"><div class="label">Headline coef</div><div class="value">{kpi_headline_coef:.4f}</div></div>
+              <div class="kpi"><div class="label">Headline p-value</div><div class="value">{kpi_headline_p:.4f}</div></div>
+              <div class="kpi"><div class="label">First-stage F</div><div class="value">{kpi_headline_f:.2f}</div></div>
+            </div>
+          </div>
+          <div class="card">
+            <h3>Trust Guide</h3>
+            <ul>
+              <li>Trust most: diagnostics-backed estimator with strongest first-stage and transparent assumptions.</li>
+              <li>Use RD sharp estimates as eligibility ITT unless funding first-stage is strong enough for fuzzy RD.</li>
+              <li>Treat TWFE as benchmark sensitivity, not standalone causal proof.</li>
+            </ul>
+            {weak_banner}
+          </div>
+          <div class="card">
+            <h3>Model Comparison</h3>
+            {table_model_comp}
+          </div>
+        </div>
+      </section>
+
+      <section class="tab-panel" id="tab-data">
+        <div class="grid grid-2">
+          <div class="card"><h3>Coverage by Year</h3>{charts["coverage"]}</div>
+          <div class="card"><h3>Missingness Heatmap</h3>{charts["missing_heat"]}</div>
+        </div>
+        <div class="grid grid-2" style="margin-top: 10px;">
+          <div class="card"><h3>Sample by Year</h3>{table_year}</div>
+          <div class="card"><h3>Sample by Country</h3>{table_country}</div>
+        </div>
+        <div class="grid grid-2" style="margin-top: 10px;">
+          <div class="card"><h3>Overview Table</h3>{table_overview}</div>
+          <div class="card">
+            <h3>Key Variable Definitions</h3>
+            <div class="spec-box">
+              <p><strong>Running variable:</strong> r = GDPpc_PPS / EU average × 100 (reference years 2007-2009; fallback <=2013).</p>
+              <p><strong>Eligibility:</strong> eligible_lt75 = 1[r &lt; 75], eligible_lt90 = 1[r &lt; 90].</p>
+              <p><strong>Exposure:</strong> erdf_eur_pc_l1 and cumulative erdf_eur_pc_cum_2014_2020.</p>
+              <p><strong>Headline outcome:</strong> gdp_pc_real_growth.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="tab-panel" id="tab-twfe">
+        <div class="grid grid-2">
+          <div class="card">
+            <h3>Specification</h3>
+            <div class="spec-box">
+              <p>Model A: outcome ~ erdf_l1 + controls + region FE + year FE</p>
+              <p>Model B: outcome ~ erdf_l1 + controls + region FE + country×year FE</p>
+              <p>Model C: outcome ~ erdf_l1 + erdf_l2 + erdf_l3 + controls + region FE + year FE</p>
+            </div>
+          </div>
+          <div class="card"><h3>Dynamic Lag Plot</h3>{charts["dynamic"]}</div>
+        </div>
+        <div class="grid grid-2" style="margin-top: 10px;">
+          <div class="card"><h3>TWFE Main</h3>{table_twfe}</div>
+          <div class="card"><h3>Distributed Lags</h3>{table_dl}</div>
+        </div>
+      </section>
+
+      <section class="tab-panel" id="tab-rd">
+        <div class="grid grid-2">
+          <div class="card"><h3>Funding Discontinuity (First Stage)</h3>{charts["rd_funding"]}</div>
+          <div class="card"><h3>Outcome RD Sensitivity</h3>{charts["rd_outcome"]}</div>
+        </div>
+        <div class="grid grid-3" style="margin-top: 10px;">
+          <div class="card"><h3>Funding Jump Table</h3>{table_rd_fs}</div>
+          <div class="card"><h3>Sharp RD Outcomes</h3>{table_rd_main}</div>
+          <div class="card"><h3>Placebo Pretrend</h3>{table_rd_placebo}</div>
+        </div>
+        <div class="grid grid-2" style="margin-top: 10px;">
+          <div class="card"><img src="figures/{FIGURE_PATHS_V31["rd_first_stage_funding_jump"].name}" alt="rd funding jump png" style="width:100%; border-radius:8px; border:1px solid var(--line);" /></div>
+          <div class="card"><img src="figures/{FIGURE_PATHS_V31["rd_outcome_binned_scatter"].name}" alt="rd outcome png" style="width:100%; border-radius:8px; border:1px solid var(--line);" /></div>
+        </div>
+      </section>
+
+      <section class="tab-panel" id="tab-iv">
+        {weak_banner}
+        <div class="grid grid-2">
+          <div class="card"><h3>Instrument Candidate Leaderboard</h3>{table_iv_candidates}</div>
+          <div class="card"><h3>First-stage Scatter</h3>{charts["iv_scatter"]}</div>
+        </div>
+        <div class="grid grid-2" style="margin-top: 10px;">
+          <div class="card"><h3>Panel IV Results</h3>{table_iv_panel}</div>
+          <div class="card"><h3>Cross-section IV Results</h3>{table_iv_cross}</div>
+        </div>
+        <div class="card" style="margin-top: 10px;">
+          <img src="figures/{FIGURE_PATHS_V31["iv_first_stage_scatter"].name}" alt="iv first stage scatter png" style="width:100%; border-radius:8px; border:1px solid var(--line);" />
+        </div>
+      </section>
+
+      <section class="tab-panel" id="tab-robustness">
+        <div class="grid grid-2">
+          <div class="card"><h3>Robustness Table</h3>{table_robust}</div>
+          <div class="card">
+            <h3>Outcome Robustness (Real vs PPS)</h3>
+            { _table_widget_html("tbl_twfe_outcomes", twfe_main[(twfe_main["term"]=="erdf_eur_pc_l1") & (twfe_main["model"].isin(["Model A","Model B"]))][["outcome","model","coef","std_err","p_value","n_obs","n_regions"]]) }
+          </div>
+        </div>
+      </section>
+
+      <section class="tab-panel" id="tab-convergence">
+        <div class="grid grid-2">
+          <div class="card"><h3>Sigma Convergence</h3>{charts["sigma"]}</div>
+          <div class="card"><h3>Beta Convergence</h3>{table_beta}</div>
+        </div>
+      </section>
+
+      <section class="tab-panel" id="tab-limits">
+        <div class="grid">
+          <div class="card">
+            <h3>Limitations</h3>
+            <ul>
+              <li>Real GDP per capita is reconstructed from volume indices, not direct chain-linked real EUR levels.</li>
+              <li>Eligibility and running-variable coverage is partial because of NUTS coverage differences.</li>
+              <li>Interpret RD as eligibility ITT unless funding first-stage is strong.</li>
+              <li>Interpret IV as causal only when first-stage diagnostics are strong and stable.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Interpretation Guardrails</h3>
+            <details open>
+              <summary>Supported claims</summary>
+              <p>Associations and policy-rule-based estimates under the maintained exclusion assumptions and observed first-stage strength diagnostics.</p>
+            </details>
+            <details>
+              <summary>Unsupported claims</summary>
+              <p>Universal structural treatment effects across all regions/times, especially when first-stage strength falls below conventional thresholds.</p>
+            </details>
+            <details>
+              <summary>Next steps</summary>
+              <p>Strengthen external instrument design (national envelopes/programmatic shocks), harmonize category coverage under NUTS revisions, and test alternative deflators/PPS-based real outcomes.</p>
+            </details>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    (function() {{
+      const tabButtons = Array.from(document.querySelectorAll('.tab-btn'));
+      const panels = Array.from(document.querySelectorAll('.tab-panel'));
+      tabButtons.forEach(btn => {{
+        btn.addEventListener('click', () => {{
+          const target = btn.getAttribute('data-tab');
+          tabButtons.forEach(b => b.classList.toggle('active', b === btn));
+          panels.forEach(p => p.classList.toggle('active', p.id === 'tab-' + target));
+        }});
+      }});
+
+      function sortTable(table, colIdx, asc) {{
+        const tbody = table.tBodies[0];
+        const rows = Array.from(tbody.rows);
+        rows.sort((a, b) => {{
+          const va = (a.cells[colIdx]?.innerText || '').trim();
+          const vb = (b.cells[colIdx]?.innerText || '').trim();
+          const na = Number(va); const nb = Number(vb);
+          const bothNum = !Number.isNaN(na) && !Number.isNaN(nb);
+          if (bothNum) return asc ? na - nb : nb - na;
+          return asc ? va.localeCompare(vb) : vb.localeCompare(va);
+        }});
+        rows.forEach(r => tbody.appendChild(r));
+      }}
+
+      Array.from(document.querySelectorAll('table.dyn-table')).forEach(table => {{
+        const headers = Array.from(table.tHead?.rows?.[0]?.cells || []);
+        headers.forEach((th, idx) => {{
+          let asc = true;
+          th.addEventListener('click', () => {{
+            sortTable(table, idx, asc);
+            asc = !asc;
+          }});
+        }});
+      }});
+
+      Array.from(document.querySelectorAll('input.table-search')).forEach(input => {{
+        const tableId = input.id.replace('_search', '');
+        const table = document.getElementById(tableId);
+        if (!table || !table.tBodies.length) return;
+        input.addEventListener('input', () => {{
+          const q = input.value.toLowerCase();
+          Array.from(table.tBodies[0].rows).forEach(row => {{
+            const text = row.innerText.toLowerCase();
+            row.style.display = text.includes(q) ? '' : 'none';
+          }});
+        }});
+      }});
+    }})();
+  </script>
+</body>
+</html>
+"""
+
+    REPORT_HTML_PATH.write_text(html, encoding="utf-8")
+
+    manifest = {
+        "tables": [
+            str(BASE_TABLE_PATHS["panel_overview"]),
+            str(BASE_TABLE_PATHS["panel_key_missingness"]),
+            str(TABLE_PATHS_V31["twfe_main"]),
+            str(TABLE_PATHS_V31["dl_lags"]),
+            str(TABLE_PATHS_V31["rd_first_stage_funding_jump"]),
+            str(TABLE_PATHS_V31["rd_outcome_sharp"]),
+            str(TABLE_PATHS_V31["rd_bandwidth_sensitivity"]),
+            str(TABLE_PATHS_V31["rd_placebo_pretrend"]),
+            str(TABLE_PATHS_V31["iv_first_stage_candidates"]),
+            str(TABLE_PATHS_V31["iv_panel_results"]),
+            str(TABLE_PATHS_V31["iv_cross_section_results"]),
+            str(TABLE_PATHS_V31["model_summary"]),
+            str(TABLE_PATHS_V31["robust_outliers"]),
+            str(TABLE_PATHS_V31["robust_balanced"]),
+            str(TABLE_PATHS_V31["robust_scaling"]),
+            str(TABLE_PATHS_V31["beta"]),
+        ],
+        "figures": [
+            str(FIGURE_PATHS_V31["dynamic_lag"]),
+            str(FIGURE_PATHS_V31["leads_lags"]),
+            str(FIGURE_PATHS_V31["sigma"]),
+            str(FIGURE_PATHS_V31["beta_partial"]),
+            str(FIGURE_PATHS_V31["rd_first_stage_funding_jump"]),
+            str(FIGURE_PATHS_V31["rd_outcome_binned_scatter"]),
+            str(FIGURE_PATHS_V31["rd_bandwidth_sensitivity"]),
+            str(FIGURE_PATHS_V31["iv_first_stage_scatter"]),
+        ],
+        "report_html": str(REPORT_HTML_PATH),
+    }
+    REPORT_MANIFEST_PATH.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    return manifest
+
+
 def create_report_notebook(headline_outcome: str) -> None:
     nb = nbformat.v4.new_notebook()
 
     cells = [
         nbformat.v4.new_markdown_cell(
-            "# EU Cohesion V3 Report\n"
+            "# EU Cohesion V3.1 Report\n"
             f"Headline outcome: **{headline_outcome}**"
         ),
         nbformat.v4.new_code_cell(
@@ -2398,10 +3775,10 @@ def create_report_notebook(headline_outcome: str) -> None:
             "root = Path('..').resolve()\n"
             "overview = pd.read_csv(root / 'outputs/tables/panel_master_overview.csv')\n"
             "missingness = pd.read_csv(root / 'outputs/tables/panel_master_key_missingness.csv')\n"
-            "twfe = pd.read_csv(root / 'outputs/tables/twfe_main_results_v3.csv')\n"
-            "dl = pd.read_csv(root / 'outputs/tables/dl_lags_results_v3.csv')\n"
-            "summary = pd.read_csv(root / 'outputs/tables/model_comparison_summary_v3.csv')\n"
-            "beta = pd.read_csv(root / 'outputs/tables/beta_convergence_results_v3.csv')\n"
+            "twfe = pd.read_csv(root / 'outputs/tables/twfe_main_results_v31.csv')\n"
+            "dl = pd.read_csv(root / 'outputs/tables/dl_lags_results_v31.csv')\n"
+            "summary = pd.read_csv(root / 'outputs/tables/model_comparison_summary_v31.csv')\n"
+            "beta = pd.read_csv(root / 'outputs/tables/beta_convergence_results_v31.csv')\n"
             "display(overview)\n"
             "display(missingness.sort_values('missing_rate', ascending=False))"
         ),
@@ -2409,22 +3786,26 @@ def create_report_notebook(headline_outcome: str) -> None:
         nbformat.v4.new_code_cell("display(twfe)\ndisplay(dl)\ndisplay(summary)"),
         nbformat.v4.new_markdown_cell("## Beta + Heterogeneity"),
         nbformat.v4.new_code_cell(
-            "hetero = pd.read_csv(root / 'outputs/tables/heterogeneity_by_category_v3.csv')\n"
-            "rd = pd.read_csv(root / 'outputs/tables/rd_main_results_v3.csv')\n"
-            "iv = pd.read_csv(root / 'outputs/tables/iv_2sls_results_v3.csv')\n"
+            "hetero = pd.read_csv(root / 'outputs/tables/heterogeneity_by_category_v31.csv')\n"
+            "rd = pd.read_csv(root / 'outputs/tables/rd_outcome_sharp_results_v31.csv')\n"
+            "iv_panel = pd.read_csv(root / 'outputs/tables/iv_2sls_results_v31.csv')\n"
+            "iv_cross = pd.read_csv(root / 'outputs/tables/iv_cross_section_results_v31.csv')\n"
             "display(beta)\n"
             "display(rd)\n"
-            "display(iv)\n"
+            "display(iv_panel)\n"
+            "display(iv_cross)\n"
             "display(hetero)"
         ),
         nbformat.v4.new_markdown_cell("## Figures"),
         nbformat.v4.new_code_cell(
-            "display(Image(filename=str(root / 'outputs/figures/sigma_convergence_v3.png')))\n"
-            "display(Image(filename=str(root / 'outputs/figures/dynamic_lag_response_v3.png')))\n"
-            "display(Image(filename=str(root / 'outputs/figures/leads_lags_placebo_v3.png')))\n"
-            "display(Image(filename=str(root / 'outputs/figures/beta_convergence_partial_v3.png')))\n"
-            "display(Image(filename=str(root / 'outputs/figures/rd_binned_scatter_v3.png')))\n"
-            "display(Image(filename=str(root / 'outputs/figures/rd_bandwidth_sensitivity_v3.png')))"
+            "display(Image(filename=str(root / 'outputs/figures/sigma_convergence_v31.png')))\n"
+            "display(Image(filename=str(root / 'outputs/figures/dynamic_lag_response_v31.png')))\n"
+            "display(Image(filename=str(root / 'outputs/figures/leads_lags_placebo_v31.png')))\n"
+            "display(Image(filename=str(root / 'outputs/figures/beta_convergence_partial_v31.png')))\n"
+            "display(Image(filename=str(root / 'outputs/figures/rd_first_stage_funding_jump_v31.png')))\n"
+            "display(Image(filename=str(root / 'outputs/figures/rd_outcome_binned_scatter_v31.png')))\n"
+            "display(Image(filename=str(root / 'outputs/figures/rd_bandwidth_sensitivity_v31.png')))\n"
+            "display(Image(filename=str(root / 'outputs/figures/iv_first_stage_scatter_v31.png')))"
         ),
         nbformat.v4.new_markdown_cell(
             "## Limitations\n"
@@ -2478,15 +3859,9 @@ def run_models_pipeline() -> Dict[str, Path]:
             validate="many_to_one",
         )
 
-    identification_required = [
-        "r_value",
-        "eligible_lt75",
-        "erdf_eur_pc_cum_2014_2020",
-        "erdf_eur_pc_cum_2015_2020",
-    ]
     _validate_columns(
         panel,
-        identification_required,
+        ["r_value", "eligible_lt75", "erdf_eur_pc_cum_2014_2020", "erdf_eur_pc_cum_2015_2020"],
         config.PANEL_MASTER_PARQUET,
         "scripts/build_dataset.py (src/pipeline.py)",
     )
@@ -2495,11 +3870,6 @@ def run_models_pipeline() -> Dict[str, Path]:
         raise ValueError(
             "category_2014_2020 is all missing in panel_master.parquet. "
             "This should come from eligibility_categories_2014_2020.csv in scripts/build_dataset.py."
-        )
-    if panel["eligible_lt75"].notna().sum() == 0:
-        raise ValueError(
-            "eligible_lt75 is all missing in panel_master.parquet. "
-            "This should come from running_variable_eligibility.csv in scripts/build_dataset.py."
         )
 
     save_panel_schema_and_overview(panel, controls_used=controls)
@@ -2511,47 +3881,46 @@ def run_models_pipeline() -> Dict[str, Path]:
         if "gdp_pc_pps_growth" in outcomes and headline_outcome != "gdp_pc_pps_growth"
         else None
     )
-
     LOGGER.info("Headline outcome: %s", headline_outcome)
     LOGGER.info("Outcomes estimated: %s", ", ".join(outcomes))
 
+    # TWFE/Event-study benchmark layer.
     twfe_main, dl_lags, core_runs = run_core_models_by_outcome(panel, outcomes, controls)
-    _write_csv(twfe_main, TABLE_PATHS_V3["twfe_main"])
-    _write_csv(dl_lags, TABLE_PATHS_V3["dl_lags"])
+    _write_csv(twfe_main, TABLE_PATHS_V31["twfe_main"])
+    _write_csv(dl_lags, TABLE_PATHS_V31["dl_lags"])
 
     dynamic_table, placebo_table, dynamic_runs = run_dynamic_and_placebo(
         panel=panel,
         headline_outcome=headline_outcome,
         controls=controls,
     )
-    _write_csv(dynamic_table, TABLE_PATHS_V3["dynamic_lag"])
-    _write_csv(placebo_table, TABLE_PATHS_V3["leads_lags"])
+    _write_csv(dynamic_table, TABLE_PATHS_V31["dynamic_lag"])
+    _write_csv(placebo_table, TABLE_PATHS_V31["leads_lags"])
 
     viz.plot_dynamic_lag_response(
         dynamic_table,
-        FIGURE_PATHS_V3["dynamic_lag"],
+        FIGURE_PATHS_V31["dynamic_lag"],
         title=f"Dynamic lag response ({headline_outcome})",
     )
     viz.plot_leads_lags_placebo(
         placebo_table,
-        FIGURE_PATHS_V3["leads_lags"],
+        FIGURE_PATHS_V31["leads_lags"],
         title=f"Placebo leads/lags ({headline_outcome})",
     )
-    viz.plot_sigma_convergence_multi(sigma, FIGURE_PATHS_V3["sigma"])
+    viz.plot_sigma_convergence_multi(sigma, FIGURE_PATHS_V31["sigma"])
 
     beta_table, heterogeneity_table, beta_partial, beta_runs = run_beta_and_heterogeneity(
         panel=panel,
         controls=controls,
         headline_outcome=headline_outcome,
     )
-    _write_csv(beta_table, TABLE_PATHS_V3["beta"])
-    _write_csv(heterogeneity_table, TABLE_PATHS_V3["heterogeneity"])
-
+    _write_csv(beta_table, TABLE_PATHS_V31["beta"])
+    _write_csv(heterogeneity_table, TABLE_PATHS_V31["heterogeneity"])
     if beta_partial is None:
         beta_partial = pd.DataFrame(columns=["percentile", "x_value", "marginal_effect", "ci_lower", "ci_upper"])
     viz.plot_beta_marginal_effect(
         beta_partial,
-        FIGURE_PATHS_V3["beta_partial"],
+        FIGURE_PATHS_V31["beta_partial"],
         title=f"Marginal ERDF effect by initial income ({headline_outcome})",
     )
 
@@ -2564,97 +3933,374 @@ def run_models_pipeline() -> Dict[str, Path]:
         balanced_regions,
         robustness_runs,
     ) = run_robustness(panel, controls, headline_outcome)
+    _write_csv(robust_outliers, TABLE_PATHS_V31["robust_outliers"])
+    _write_csv(robust_balanced, TABLE_PATHS_V31["robust_balanced"])
+    _write_csv(robust_scaling, TABLE_PATHS_V31["robust_scaling"])
 
-    _write_csv(robust_outliers, TABLE_PATHS_V3["robust_outliers"])
-    _write_csv(robust_balanced, TABLE_PATHS_V3["robust_balanced"])
-    _write_csv(robust_scaling, TABLE_PATHS_V3["robust_scaling"])
-
-    region_ident_df, rd_main, rd_sensitivity, rd_placebo = run_rd_analysis(
+    # Region-level frame for RD/IV diagnostics and cross-sectional IV.
+    region_outcomes = [headline_outcome]
+    if pps_outcome is not None:
+        region_outcomes.append(pps_outcome)
+    region_outcomes.extend([col for col in ["log_gdp_pc_real", "log_gdp_pc_pps"] if col in panel.columns])
+    region_ident_df = build_region_level_identification_frame(
         panel=panel,
         running=running,
         exposure=exposure,
-        headline_outcome=headline_outcome,
-        pps_outcome=pps_outcome,
         controls=controls,
+        outcomes=region_outcomes,
     )
-    _write_csv(rd_main, TABLE_PATHS_V3["rd_main"])
-    _write_csv(rd_placebo, TABLE_PATHS_V3["rd_placebo"])
-    rd_sensitivity_path = OUTPUT_TABLES_DIR / "rd_bandwidth_sensitivity_v3.csv"
-    _write_csv(rd_sensitivity, rd_sensitivity_path)
 
-    rd_outcome_col = f"{headline_outcome}_post_2016_2020"
-    if rd_outcome_col not in region_ident_df.columns or region_ident_df[rd_outcome_col].notna().sum() == 0:
-        fallback_cols = [c for c in region_ident_df.columns if c.endswith("post_2016_2020")]
-        if not fallback_cols:
-            raise ValueError(
-                "Could not find any post-treatment RD outcome column for plotting. "
-                "Expected columns ending with '_post_2016_2020' from run_rd_analysis."
-            )
-        rd_outcome_col = fallback_cols[0]
+    rd_bandwidths = [5.0, 7.5, 10.0, 12.5, 15.0, 20.0]
 
+    # RD first-stage funding discontinuity diagnostics.
+    rd_funding_jump = run_rd_funding_jump_v31(region_ident_df, bandwidths=rd_bandwidths)
+    _write_csv(rd_funding_jump, TABLE_PATHS_V31["rd_first_stage_funding_jump"])
     viz.plot_rd_binned_scatter(
         region_ident_df,
-        outcome_col=rd_outcome_col,
-        output_path=FIGURE_PATHS_V3["rd_binned"],
+        outcome_col="erdf_eur_pc_cum_2014_2020",
+        output_path=FIGURE_PATHS_V31["rd_first_stage_funding_jump"],
         cutoff=75.0,
-        bandwidth=15.0,
-        title=f"RD binned scatter ({rd_outcome_col})",
-    )
-    viz.plot_rd_bandwidth_sensitivity(
-        rd_sensitivity,
-        output_path=FIGURE_PATHS_V3["rd_bandwidth"],
-        title="RD bandwidth sensitivity (sharp RD)",
+        bandwidth=20.0,
+        title="RD first stage: cumulative ERDF per capita at 75 cutoff",
     )
 
-    iv_results, iv_first_stage = run_iv_2sls_panel(
-        panel=panel,
+    # Sharp RD outcome effects (eligibility ITT) + placebo.
+    rd_outcome_sharp, rd_bandwidth, rd_placebo = run_sharp_rd_outcomes_v31(
+        region_df=region_ident_df,
         headline_outcome=headline_outcome,
         pps_outcome=pps_outcome,
+        bandwidths=rd_bandwidths,
+    )
+    _write_csv(rd_outcome_sharp, TABLE_PATHS_V31["rd_outcome_sharp"])
+    _write_csv(rd_bandwidth, TABLE_PATHS_V31["rd_bandwidth_sensitivity"])
+    _write_csv(rd_placebo, TABLE_PATHS_V31["rd_placebo_pretrend"])
+
+    rd_outcome_plot_col = f"{headline_outcome}_post_2016_2020"
+    if rd_outcome_plot_col in region_ident_df.columns:
+        viz.plot_rd_binned_scatter(
+            region_ident_df,
+            outcome_col=rd_outcome_plot_col,
+            output_path=FIGURE_PATHS_V31["rd_outcome_binned_scatter"],
+            cutoff=75.0,
+            bandwidth=20.0,
+            title=f"Sharp RD eligibility effect ({rd_outcome_plot_col})",
+        )
+    else:
+        viz.plot_rd_binned_scatter(
+            region_ident_df,
+            outcome_col="erdf_eur_pc_cum_2014_2020",
+            output_path=FIGURE_PATHS_V31["rd_outcome_binned_scatter"],
+            cutoff=75.0,
+            bandwidth=20.0,
+            title="Sharp RD outcome plot fallback",
+        )
+    viz.plot_rd_bandwidth_sensitivity(
+        rd_bandwidth,
+        output_path=FIGURE_PATHS_V31["rd_bandwidth_sensitivity"],
+        title="Sharp RD outcome bandwidth sensitivity",
+    )
+
+    # IV first-stage candidate diagnostics.
+    iv_candidates = build_iv_first_stage_candidates_v31(
+        panel=panel,
+        region_df=region_ident_df,
         controls=controls,
     )
-    _write_csv(iv_results, TABLE_PATHS_V3["iv_2sls"])
-    _write_csv(iv_first_stage, TABLE_PATHS_V3["iv_first_stage"])
+    if "iv_first_stage_f_headline" not in iv_candidates.columns:
+        iv_candidates["iv_first_stage_f_headline"] = np.nan
 
-    all_runs = [*core_runs, *dynamic_runs, *beta_runs, *robustness_runs]
+    panel_iv_data = panel.copy()
+    panel_iv_data["eligible_lt75"] = pd.to_numeric(panel_iv_data["eligible_lt75"], errors="coerce")
+    panel_iv_data["eligible_lt90"] = np.where(pd.to_numeric(panel_iv_data["r_value"], errors="coerce") < 90.0, 1.0, 0.0)
+    panel_iv_data["post2014"] = (panel_iv_data["year"] >= 2014).astype(float)
+    panel_iv_data["eu_mean_erdf_t"] = panel_iv_data.groupby("year", sort=False)["erdf_eur_pc"].transform("mean")
+    panel_iv_data["country_mean_erdf_t_loo"] = _build_leave_one_out_country_mean(panel_iv_data, "erdf_eur_pc")
+    panel_iv_data["z1_post75"] = panel_iv_data["eligible_lt75"] * panel_iv_data["post2014"]
+    panel_iv_data["z2_eu75"] = panel_iv_data["eligible_lt75"] * panel_iv_data["eu_mean_erdf_t"]
+    panel_iv_data["z3_country75"] = panel_iv_data["eligible_lt75"] * panel_iv_data["country_mean_erdf_t_loo"]
+    panel_iv_data["z5_eu90"] = panel_iv_data["eligible_lt90"] * panel_iv_data["eu_mean_erdf_t"]
 
-    key_term_lookup = {
-        "Model A": "erdf_eur_pc_l1",
-        "Model B": "erdf_eur_pc_l1",
-        "Model A (two-way cluster)": "erdf_eur_pc_l1",
-        "Model B (two-way cluster)": "erdf_eur_pc_l1",
-        "Model C": "erdf_eur_pc_l1",
-        "Model D": "log_gdp_pc_real_l1",
-        "Model E": "erdf_eur_pc_l1",
-        "Model E (country-year FE)": "erdf_eur_pc_l1",
-        "Model A (outliers excluded)": "erdf_eur_pc_l1",
-        "Model B (outliers excluded)": "erdf_eur_pc_l1",
-        "Model A (balanced panel)": "erdf_eur_pc_l1",
-        "Model B (balanced panel)": "erdf_eur_pc_l1",
-        "Model A (scaled treatment)": "erdf_k_eur_pc_l1",
-        "Model B (scaled treatment)": "erdf_k_eur_pc_l1",
-    }
-
-    model_summary = _build_model_summary(
-        runs=all_runs,
-        key_term_lookup=key_term_lookup,
-        outlier_threshold=outlier_threshold,
-        balanced_window=balanced_window,
-        balanced_regions=balanced_regions,
+    # Panel IV result (best panel candidate if available).
+    iv_panel_results = pd.DataFrame(
+        columns=[
+            "outcome",
+            "model",
+            "sample_type",
+            "term",
+            "instrument",
+            "coef",
+            "std_err",
+            "t_stat",
+            "p_value",
+            "ci_95_lower",
+            "ci_95_upper",
+            "first_stage_f_stat",
+            "n_obs",
+            "n_regions",
+            "sample_year_min",
+            "sample_year_max",
+            "controls_used",
+            "fe_spec",
+        ]
     )
-    model_summary_legacy_path = OUTPUT_TABLES_DIR / "model_comparison_summary_twfe_legacy_v3.csv"
-    _write_csv(model_summary, model_summary_legacy_path)
+    panel_ok = iv_candidates[
+        (iv_candidates["sample_type"] == "panel") & (iv_candidates["status"] == "ok")
+    ].copy()
+    if not panel_ok.empty:
+        panel_ok["f_stat"] = pd.to_numeric(panel_ok["f_stat"], errors="coerce")
+        best_panel = panel_ok.sort_values("f_stat", ascending=False).iloc[0]
+        try:
+            iv_panel_results, _ = run_panel_iv_with_instrument_v31(
+                panel=panel_iv_data,
+                outcome=headline_outcome,
+                instrument_var=str(best_panel["instrument_var"]),
+                controls=controls,
+            )
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.warning("Panel IV (selected candidate) failed: %s", exc)
+    _write_csv(iv_panel_results, TABLE_PATHS_V31["iv_panel_results"])
 
-    model_comparison_v3 = build_model_comparison_v3(
-        headline_outcome=headline_outcome,
-        twfe_main=twfe_main,
-        dl_lags=dl_lags,
-        rd_main=rd_main,
-        iv_table=iv_results,
+    # Cross-sectional IV result (best cross-section candidate, often stronger).
+    iv_cross_results = pd.DataFrame(
+        columns=[
+            "outcome",
+            "window",
+            "model",
+            "sample_type",
+            "term",
+            "instrument",
+            "coef",
+            "std_err",
+            "t_stat",
+            "p_value",
+            "ci_95_lower",
+            "ci_95_upper",
+            "first_stage_f_stat",
+            "n_obs",
+            "n_regions",
+            "controls_used",
+            "fe_spec",
+        ]
     )
-    _write_csv(model_comparison_v3, TABLE_PATHS_V3["model_summary"])
+    first_stage_scatter = pd.DataFrame(columns=["actual_exposure", "fitted_exposure"])
+    selected_cross_candidate: Optional[Dict[str, object]] = None
+    selected_cross_first_stage_f = np.nan
+    cross_ok = iv_candidates[
+        (iv_candidates["sample_type"] == "cross_section") & (iv_candidates["status"] == "ok")
+    ].copy()
+    if not cross_ok.empty:
+        candidate_runs: List[Tuple[float, Dict[str, object], pd.DataFrame, pd.DataFrame]] = []
+        for idx, candidate in cross_ok.iterrows():
+            controls_text = str(candidate.get("controls_used", ""))
+            cross_controls = [token for token in controls_text.split(",") if token]
+            try:
+                candidate_results, _, candidate_scatter = run_cross_section_iv_v31(
+                    region_df=region_ident_df,
+                    instrument_var=str(candidate["instrument_var"]),
+                    endog_var=str(candidate["endogenous_var"]),
+                    controls=cross_controls,
+                    headline_outcome=headline_outcome,
+                    pps_outcome=pps_outcome,
+                )
+            except Exception as exc:  # noqa: BLE001
+                LOGGER.warning("Cross-sectional IV candidate failed (%s): %s", candidate["candidate_id"], exc)
+                continue
 
+            if candidate_results.empty:
+                continue
+
+            headline_row = candidate_results[
+                (candidate_results["outcome"] == headline_outcome)
+                & (candidate_results["window"] == "post_2016_2020")
+            ]
+            if headline_row.empty:
+                headline_row = candidate_results.head(1)
+            first_f = float(pd.to_numeric(headline_row.iloc[0]["first_stage_f_stat"], errors="coerce"))
+            iv_candidates.loc[idx, "iv_first_stage_f_headline"] = first_f
+            candidate_runs.append((first_f, candidate.to_dict(), candidate_results, candidate_scatter))
+
+        if candidate_runs:
+            candidate_runs.sort(key=lambda item: item[0], reverse=True)
+            selected_cross_first_stage_f, selected_cross_candidate, iv_cross_results, first_stage_scatter = candidate_runs[0]
+            LOGGER.info(
+                "Selected cross-section IV candidate %s with first-stage F=%.2f",
+                selected_cross_candidate.get("candidate_id"),
+                selected_cross_first_stage_f,
+            )
+    _write_csv(iv_candidates, TABLE_PATHS_V31["iv_first_stage_candidates"])
+    _write_csv(iv_cross_results, TABLE_PATHS_V31["iv_cross_section_results"])
+    _plot_first_stage_scatter_png(first_stage_scatter, FIGURE_PATHS_V31["iv_first_stage_scatter"])
+
+    # Decision: choose headline estimator transparently from diagnostics.
+    panel_first_stage_f = np.nan
+    if not iv_panel_results.empty:
+        panel_first_stage_f = float(pd.to_numeric(iv_panel_results.iloc[0]["first_stage_f_stat"], errors="coerce"))
+
+    if selected_cross_candidate is not None and selected_cross_first_stage_f >= 10.0:
+        preferred_estimator_label = (
+            f"cross_section IV ({selected_cross_candidate['candidate_id']})"
+        )
+        preferred_estimator_note = (
+            "Headline estimator selected from candidate instruments using IV first-stage strength "
+            f"(headline first-stage F={selected_cross_first_stage_f:.2f})."
+        )
+    elif pd.notna(panel_first_stage_f) and panel_first_stage_f >= 10.0:
+        preferred_estimator_label = "panel IV (selected candidate)"
+        preferred_estimator_note = (
+            f"Cross-section IV candidates are weaker; panel IV retained with first-stage F={panel_first_stage_f:.2f}."
+        )
+    else:
+        preferred_estimator_label = "Strict TWFE benchmark (fallback)"
+        preferred_estimator_note = (
+            "RD/IV first-stage diagnostics do not meet conventional strength thresholds; "
+            "causal interpretation is limited and benchmark TWFE/event-study is emphasized."
+        )
+
+    # Unified comparison table (TWFE + sharp RD ITT + IV where available).
+    comparison_rows: List[Dict[str, object]] = []
+    twfe_subset = twfe_main[
+        (twfe_main["outcome"] == headline_outcome)
+        & (twfe_main["term"] == "erdf_eur_pc_l1")
+        & (twfe_main["model"].isin(["Model A", "Model B"]))
+    ]
+    for _, row in twfe_subset.iterrows():
+        comparison_rows.append(
+            {
+                "estimator_family": "TWFE",
+                "model": row["model"],
+                "outcome": headline_outcome,
+                "window": "panel",
+                "term": row["term"],
+                "coef": row["coef"],
+                "std_err": row["std_err"],
+                "p_value": row["p_value"],
+                "ci_95_lower": row["ci_95_lower"],
+                "ci_95_upper": row["ci_95_upper"],
+                "n_obs": row["n_obs"],
+                "n_regions": row["n_regions"],
+                "first_stage_f_stat": np.nan,
+                "is_headline_estimator": preferred_estimator_label.startswith("Strict TWFE"),
+            }
+        )
+    dl_subset = dl_lags[
+        (dl_lags["outcome"] == headline_outcome)
+        & (dl_lags["model"] == "Model C")
+        & (dl_lags["term"] == "erdf_eur_pc_l1")
+    ]
+    for _, row in dl_subset.iterrows():
+        comparison_rows.append(
+            {
+                "estimator_family": "TWFE-dynamic",
+                "model": "Model C (l1 term)",
+                "outcome": headline_outcome,
+                "window": "panel",
+                "term": row["term"],
+                "coef": row["coef"],
+                "std_err": row["std_err"],
+                "p_value": row["p_value"],
+                "ci_95_lower": row["ci_95_lower"],
+                "ci_95_upper": row["ci_95_upper"],
+                "n_obs": row["n_obs"],
+                "n_regions": row["n_regions"],
+                "first_stage_f_stat": np.nan,
+                "is_headline_estimator": False,
+            }
+        )
+    rd_subset = rd_outcome_sharp[
+        (rd_outcome_sharp["outcome"] == headline_outcome)
+        & (rd_outcome_sharp["window"] == "post_2016_2020")
+    ]
+    for _, row in rd_subset.iterrows():
+        comparison_rows.append(
+            {
+                "estimator_family": "RD (sharp ITT)",
+                "model": f"Sharp RD bw={row['bandwidth']}",
+                "outcome": headline_outcome,
+                "window": row["window"],
+                "term": "eligible_lt75",
+                "coef": row["coef"],
+                "std_err": row["std_err"],
+                "p_value": row["p_value"],
+                "ci_95_lower": row["ci_95_lower"],
+                "ci_95_upper": row["ci_95_upper"],
+                "n_obs": row["n_obs"],
+                "n_regions": row["n_left"] + row["n_right"],
+                "first_stage_f_stat": np.nan,
+                "is_headline_estimator": preferred_estimator_label.startswith("RD"),
+            }
+        )
+    if not iv_cross_results.empty:
+        iv_head = iv_cross_results[
+            (iv_cross_results["outcome"] == headline_outcome)
+            & (iv_cross_results["window"] == "post_2016_2020")
+        ]
+        if iv_head.empty:
+            iv_head = iv_cross_results.head(1)
+        for _, row in iv_head.iterrows():
+            comparison_rows.append(
+                {
+                    "estimator_family": "IV (cross-section)",
+                    "model": row["model"],
+                    "outcome": row["outcome"],
+                    "window": row["window"],
+                    "term": row["term"],
+                    "coef": row["coef"],
+                    "std_err": row["std_err"],
+                    "p_value": row["p_value"],
+                    "ci_95_lower": row["ci_95_lower"],
+                    "ci_95_upper": row["ci_95_upper"],
+                    "n_obs": row["n_obs"],
+                    "n_regions": row["n_regions"],
+                    "first_stage_f_stat": row["first_stage_f_stat"],
+                    "is_headline_estimator": preferred_estimator_label.startswith("cross_section IV"),
+                }
+            )
+    if not iv_panel_results.empty:
+        row = iv_panel_results.iloc[0]
+        comparison_rows.append(
+            {
+                "estimator_family": "IV (panel)",
+                "model": row["model"],
+                "outcome": row["outcome"],
+                "window": "panel",
+                "term": row["term"],
+                "coef": row["coef"],
+                "std_err": row["std_err"],
+                "p_value": row["p_value"],
+                "ci_95_lower": row["ci_95_lower"],
+                "ci_95_upper": row["ci_95_upper"],
+                "n_obs": row["n_obs"],
+                "n_regions": row["n_regions"],
+                "first_stage_f_stat": row["first_stage_f_stat"],
+                "is_headline_estimator": preferred_estimator_label.startswith("panel IV"),
+            }
+        )
+
+    model_comparison = pd.DataFrame(comparison_rows).sort_values(
+        ["is_headline_estimator", "estimator_family", "model"],
+        ascending=[False, True, True],
+    )
+    _write_csv(model_comparison, TABLE_PATHS_V31["model_summary"])
+
+    # Base summaries used by report.
     overview = pd.read_csv(BASE_TABLE_PATHS["panel_overview"])
-    missingness = pd.read_csv(BASE_TABLE_PATHS["panel_key_missingness"])
+    try:
+        missingness = pd.read_csv(config.QA_TABLES["missingness"])
+    except Exception:  # noqa: BLE001
+        variables = [col for col in panel.columns if col not in ["nuts2_id", "country", "year"]]
+        frames: List[pd.DataFrame] = []
+        for variable in variables:
+            grouped = panel.groupby("year", sort=True)[variable].agg(
+                n_obs="size",
+                n_missing=lambda series: int(series.isna().sum()),
+            )
+            grouped = grouped.reset_index()
+            grouped["variable"] = variable
+            grouped["missing_share"] = grouped["n_missing"] / grouped["n_obs"]
+            frames.append(grouped[["year", "variable", "n_obs", "n_missing", "missing_share"]])
+        missingness = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(
+            columns=["year", "variable", "n_obs", "n_missing", "missing_share"]
+        )
 
     robustness_summary = pd.concat(
         [
@@ -2665,31 +4311,38 @@ def run_models_pipeline() -> Dict[str, Path]:
         ignore_index=True,
     )
 
-    create_html_report_v3(
+    create_html_report_v31(
         headline_outcome=headline_outcome,
+        preferred_estimator_label=preferred_estimator_label,
+        preferred_estimator_note=preferred_estimator_note,
         overview=overview,
-        key_missingness=missingness,
-        model_comparison=model_comparison_v3,
-        rd_main=rd_main,
-        rd_sensitivity=rd_sensitivity,
+        panel=panel,
+        missingness=missingness,
+        twfe_main=twfe_main,
+        dl_lags=dl_lags,
+        dynamic_lag=dynamic_table,
+        rd_funding_jump=rd_funding_jump,
+        rd_outcome_sharp=rd_outcome_sharp,
+        rd_bandwidth=rd_bandwidth,
         rd_placebo=rd_placebo,
-        iv_results=iv_results,
-        iv_first_stage=iv_first_stage,
-        robustness=robustness_summary,
+        iv_candidates=iv_candidates,
+        iv_panel=iv_panel_results,
+        iv_cross=iv_cross_results,
+        robustness_summary=robustness_summary,
         sigma=sigma,
-        leads_lags=placebo_table,
+        beta=beta_table,
+        model_comparison=model_comparison,
+        first_stage_scatter=first_stage_scatter,
     )
 
     create_report_notebook(headline_outcome)
 
-    LOGGER.info("V3 analysis completed. RD/IV, robustness, and standalone report written under outputs/.")
+    LOGGER.info("V3.1 analysis completed. Diagnostics, selected identification, and tabbed report written under outputs/.")
 
     outputs: Dict[str, Path] = {}
     outputs.update({f"table_base_{name}": path for name, path in BASE_TABLE_PATHS.items()})
-    outputs.update({f"table_v3_{name}": path for name, path in TABLE_PATHS_V3.items()})
-    outputs[f"table_v3_rd_sensitivity"] = rd_sensitivity_path
-    outputs[f"table_v3_twfe_legacy"] = model_summary_legacy_path
-    outputs.update({f"figure_v3_{name}": path for name, path in FIGURE_PATHS_V3.items()})
+    outputs.update({f"table_v31_{name}": path for name, path in TABLE_PATHS_V31.items()})
+    outputs.update({f"figure_v31_{name}": path for name, path in FIGURE_PATHS_V31.items()})
     outputs["report_html"] = REPORT_HTML_PATH
     outputs["report_manifest"] = REPORT_MANIFEST_PATH
     outputs["report_notebook"] = NOTEBOOK_PATH

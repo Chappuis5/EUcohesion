@@ -1,0 +1,2 @@
+outcome,window,bandwidth,coef,std_err,t_stat,p_value,ci_95_lower,ci_95_upper,n_obs,n_left,n_right,interpretation
+gdp_pc_real_growth,pre_2010_2013,10,-1.941946592,2.45554222,-0.7908422736,0.4290360379,-6.754720906,2.870827722,53,24,29,placebo pretrend jump should be near zero

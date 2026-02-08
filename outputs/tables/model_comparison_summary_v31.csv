@@ -1,0 +1,7 @@
+estimator_family,model,outcome,window,term,coef,std_err,p_value,ci_95_lower,ci_95_upper,n_obs,n_regions,first_stage_f_stat,is_headline_estimator
+IV (cross-section),IV 2SLS cross-section (selected candidate),gdp_pc_real_growth,post_2016_2020,erdf_eur_pc_cum_2014_2020,-0.003629479178,0.002129239142,0.08827096778,-0.007802711212,0.0005437528551,265,265,15.65361112,True
+IV (panel),IV 2SLS panel (selected candidate),gdp_pc_real_growth,panel,erdf_eur_pc_l1,-0.08714062484,0.09526717214,0.3603505638,-0.2738608511,0.09957960146,1175,223,1.810335216,False
+RD (sharp ITT),Sharp RD bw=10.0,gdp_pc_real_growth,post_2016_2020,eligible_lt75,-0.1588087945,1.375125184,0.9080592898,-2.854004629,2.53638704,53,53,,False
+TWFE,Model A,gdp_pc_real_growth,panel,erdf_eur_pc_l1,0.005679637106,0.003024505711,0.06039856376,-0.0002482851593,0.01160755937,1175,223,,False
+TWFE,Model B,gdp_pc_real_growth,panel,erdf_eur_pc_l1,0.003361760426,0.00288822826,0.2444432728,-0.002299062943,0.009022583794,1175,223,,False
+TWFE-dynamic,Model C (l1 term),gdp_pc_real_growth,panel,erdf_eur_pc_l1,0.01199928471,0.004849873994,0.01335560017,0.002493706354,0.02150486307,861,223,,False
