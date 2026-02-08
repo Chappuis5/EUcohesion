@@ -1,0 +1,51 @@
+\begin{thebibliography}{5}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[{European Commission, Cohesion Data
+  Platform}(2026{\natexlab{a}})]{cohesion-99js-gm52}
+{European Commission, Cohesion Data Platform}.
+\newblock Finance implementation details (2014--2020).
+\newblock
+  \url{https://cohesiondata.ec.europa.eu/2014-2020-Finances/Finance-Implementation-Details/99js-gm52},
+  2026{\natexlab{a}}.
+\newblock Dataset ID: 99js-gm52; Accessed 2026-02-08.
+
+\bibitem[{European Commission, Cohesion Data
+  Platform}(2026{\natexlab{b}})]{cohesion-tc55-7ysv}
+{European Commission, Cohesion Data Platform}.
+\newblock Historic eu payments regionalised and modelled time series.
+\newblock
+  \url{https://cohesiondata.ec.europa.eu/Historic/Historic-EU-payments-regionalised-and-modelled-/tc55-7ysv},
+  2026{\natexlab{b}}.
+\newblock Dataset ID: tc55-7ysv; Accessed 2026-02-08.
+
+\bibitem[{European Commission, DG REGIO}(2026)]{dg-regio-data-for-research}
+{European Commission, DG REGIO}.
+\newblock Data for research and analyses.
+\newblock
+  \url{https://ec.europa.eu/regional_policy/information-sources/maps/data-for-research_en},
+  2026.
+\newblock Accessed 2026-02-08.
+
+\bibitem[{Eurostat}(2026{\natexlab{a}})]{eurostat-nama-10r-2gdp}
+{Eurostat}.
+\newblock Gross domestic product (gdp) at current market prices by nuts 2
+  regions.
+\newblock
+  \url{https://ec.europa.eu/eurostat/databrowser/view/nama_10r_2gdp/default/table},
+  2026{\natexlab{a}}.
+\newblock Dataset ID: nama\_10r\_2gdp; Accessed 2026-02-08.
+
+\bibitem[{Eurostat}(2026{\natexlab{b}})]{eurostat-nama-10r-2gvagr}
+{Eurostat}.
+\newblock Gross value added by nuts 2 regions.
+\newblock
+  \url{https://ec.europa.eu/eurostat/databrowser/view/nama_10r_2gvagr/default/table},
+  2026{\natexlab{b}}.
+\newblock Dataset ID: nama\_10r\_2gvagr; Accessed 2026-02-08.
+
+\end{thebibliography}

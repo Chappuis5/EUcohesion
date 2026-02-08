@@ -25,9 +25,29 @@ Make targets:
 make pipeline
 make models
 make report
+make report-pdf
 ```
 
 `make report` is an alias of `make models`.
+
+## PDF Report
+To build the concise academic LaTeX report from already-generated V3.1 outputs:
+
+```bash
+make report-pdf
+```
+
+This command:
+- generates LaTeX table snippets from `_v31` CSV outputs via `scripts/build_latex_tables.py`,
+- copies required figures into `report/figures/`,
+- compiles `report/report.tex` into `report/report.pdf`.
+
+Report artifacts:
+- `report/report.tex`
+- `report/references.bib`
+- `report/report.pdf`
+- `report/tables/` (CSV copies + generated `.tex` table snippets)
+- `report/figures/` (copied V3.1 PNG figures)
 
 ## Raw Inputs
 ### Existing raw files

@@ -1,0 +1,2 @@
+outcome,model,sample_type,term,instrument,coef,std_err,t_stat,p_value,ci_95_lower,ci_95_upper,first_stage_f_stat,n_obs,n_regions,sample_year_min,sample_year_max,controls_used,fe_spec
+gdp_pc_real_growth,IV 2SLS panel (selected candidate),panel,erdf_eur_pc_l1,z5_eu90,-0.08714062484,0.09526717214,-0.9146972969,0.3603505638,-0.2738608511,0.09957960146,1.810335216,1175,223,2017,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva",region_FE + year_FE

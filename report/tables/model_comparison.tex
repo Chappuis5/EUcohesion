@@ -1,0 +1,12 @@
+\begin{tabular}{llllllll}
+\toprule
+Family & Model & Window & Coef & SE & p & F & Headline \\
+\midrule
+IV (cross-section) & IV 2SLS cross-section (selected candidate) & post\_2016\_2020 & -0.004 & 0.002 & 0.088 & 15.654 & True \\
+IV (panel) & IV 2SLS panel (selected candidate) & panel & -0.087 & 0.095 & 0.360 & 1.810 & False \\
+RD (sharp ITT) & Sharp RD bw=10.0 & post\_2016\_2020 & -0.159 & 1.375 & 0.908 &  & False \\
+TWFE & Model A & panel & 0.006 & 0.003 & 0.060 &  & False \\
+TWFE & Model B & panel & 0.003 & 0.003 & 0.244 &  & False \\
+TWFE-dynamic & Model C (l1 term) & panel & 0.012 & 0.005 & 0.013 &  & False \\
+\bottomrule
+\end{tabular}

@@ -1,0 +1,255 @@
+\documentclass[10pt]{article}
+\usepackage[margin=0.9in]{geometry}
+\usepackage{setspace}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{hyperref}
+\usepackage{amsmath}
+\usepackage{siunitx}
+\usepackage{natbib}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage{subcaption}
+
+\graphicspath{{figures/}}
+\hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
+\setstretch{1.0}
+\setlength{\textfloatsep}{8pt plus 2pt minus 2pt}
+\setlength{\floatsep}{8pt plus 2pt minus 2pt}
+
+\title{Impact of ERDF on Regional Growth and Convergence in EU NUTS2 Regions (2014--2020):\\Panel Evidence and Policy-Rule Identification}
+\author{EUcohesion Project}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This report studies the causal effect of ERDF funding intensity on regional GDP per-capita growth and convergence across EU NUTS2 regions. We use the project\'s harmonized panel and policy-rule artifacts already generated in V3.1, combining TWFE benchmarks with policy-rule-based designs (RD and IV). The main outcome is real GDP per-capita growth; PPS growth is reported as robustness. Diagnostics show that the 75\% eligibility cutoff does not generate a strong funding discontinuity (first-stage F-statistics below 2 across bandwidths), so fuzzy RD is not treated as a causal ERDF LATE design. We therefore use diagnostics-driven IV selection among candidate instruments and select a cross-sectional cumulative-exposure specification instrumented by eligibility below 90\%, which delivers the strongest first stage (F=15.65). The headline IV estimates are negative and marginally imprecise (p-values around 0.07--0.09), while TWFE benchmarks remain small and specification-sensitive. Convergence evidence remains strong: both sigma and beta metrics support convergence over the sample. Results should be interpreted with caution because identification still depends on exclusion assumptions and partial eligibility coverage.
+\end{abstract}
+
+\section{Introduction}
+\textbf{Problematic.} This report targets the causal effect of ERDF intensity on GDP per-capita growth and convergence, with policy period focus on 2014--2020 and post-period outcomes.
+
+The empirical challenge is that regional funding intensity is endogenous to initial conditions and policy targeting. V3.1 therefore combines descriptive panel evidence with explicit design diagnostics for policy-rule identification, rather than presenting one estimator without testing its viability.
+
+\section{Data}
+\subsection{Sources and identifiers}
+Table~\ref{tab:data-sources} lists the exact datasets used in the repository build and analysis pipeline, with IDs and URLs.
+Primary source portals are DG REGIO and Eurostat \citep{dg-regio-data-for-research,eurostat-nama-10r-2gdp,eurostat-nama-10r-2gvagr}, with ERDF finance records from the Cohesion Data Platform \citep{cohesion-99js-gm52,cohesion-tc55-7ysv}.
+
+\begin{table}[H]
+\centering
+\caption{Data sources used in V3.1}
+\label{tab:data-sources}
+\small
+\begin{tabularx}{\textwidth}{@{}l l l@{}}
+\toprule
+Domain & Dataset ID & URL \\
+\midrule
+Cohesion funding & 99js-gm52 & \href{https://cohesiondata.ec.europa.eu/2014-2020-Finances/Finance-Implementation-Details/99js-gm52}{link} \\
+Cohesion funding & tc55-7ysv & \href{https://cohesiondata.ec.europa.eu/Historic/Historic-EU-payments-regionalised-and-modelled-/tc55-7ysv}{link} \\
+Eurostat GDP (PPS) & nama\_10r\_2gdp & \href{https://ec.europa.eu/eurostat/databrowser/view/nama_10r_2gdp/default/table}{link} \\
+Eurostat regional accounts & nama\_10r\_2gvagr & \href{https://ec.europa.eu/eurostat/databrowser/view/nama_10r_2gvagr/default/table}{link} \\
+Eurostat population & demo\_r\_d2jan & \href{https://ec.europa.eu/eurostat/databrowser/view/demo_r_d2jan/default/table}{link} \\
+Eurostat unemployment & tgs00010 & \href{https://ec.europa.eu/eurostat/databrowser/view/tgs00010/default/table}{link} \\
+Eurostat employment & tgs00007 & \href{https://ec.europa.eu/eurostat/databrowser/view/tgs00007/default/table}{link} \\
+Eurostat tertiary education & tgs00109 & \href{https://ec.europa.eu/eurostat/databrowser/view/tgs00109/default/table}{link} \\
+Eurostat R\&D & tgs00042 & \href{https://ec.europa.eu/eurostat/databrowser/view/tgs00042/default/table}{link} \\
+DG REGIO hub & Data for research & \href{https://ec.europa.eu/regional_policy/information-sources/maps/data-for-research_en}{link} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Construction summary}
+The processed panel is built at the NUTS2-year level with harmonized keys (\texttt{nuts2\_id}, year), ERDF per-capita treatment and lags, GDP outcomes, controls, and eligibility metadata. NUTS harmonization is imperfect across historical revisions, so eligibility/running-variable coverage is partial relative to the full panel.
+
+Real GDP per capita is reconstructed from regional volume indices (\texttt{nama\_10r\_2gvagr}, B1GQ, I15) anchored to each region\'s nominal reference level (preferably 2015):
+\[
+\text{GDPpc}^{real}_{it} = \text{GDPpc}^{nom}_{i,ref}\times\frac{I^{vol}_{it}}{I^{vol}_{i,ref}}.
+\]
+
+Panel coverage metrics from the generated overview are reported in Table~\ref{tab:overview}.
+
+\begin{table}[H]
+\centering
+\caption{Panel overview metrics}
+\label{tab:overview}
+\small
+\input{tables/overview_metrics.tex}
+\end{table}
+
+\section{Empirical strategy}
+\subsection{TWFE benchmark}
+The benchmark panel models are:
+\begin{align}
+\text{(A)}\quad y_{it} &= \beta\,ERDFpc_{i,t-1} + \gamma'X_{it} + \alpha_i + \tau_t + \varepsilon_{it}, \\
+\text{(B)}\quad y_{it} &= \beta\,ERDFpc_{i,t-1} + \gamma'X_{it} + \alpha_i + \delta_{c(i),t} + \varepsilon_{it}, \\
+\text{(C)}\quad y_{it} &= \sum_{k=1}^3\beta_k ERDFpc_{i,t-k} + \gamma'X_{it} + \alpha_i + \tau_t + \varepsilon_{it},
+\end{align}
+where $y_{it}$ is headline real growth (with PPS robustness), $\alpha_i$ are region FE, and errors are clustered by region.
+
+\subsection{RD diagnostics and sharp RD ITT}
+Using the running variable
+\[
+r_i = \left(\frac{GDPpc^{PPS}_i}{EU\ average\ GDPpc^{PPS}}\right)\times 100,
+\]
+we test whether funding jumps at the 75 threshold. Local linear RD with triangular kernels is estimated over a bandwidth grid $\{5,7.5,10,12.5,15,20\}$.
+
+Because first-stage funding jumps are weak in V3.1, fuzzy RD is treated as non-viable for causal ERDF LATE. Sharp RD is retained as reduced-form eligibility ITT evidence.
+
+\subsection{IV candidate set and selection}
+IV candidates are diagnosed via first-stage strength (F-stat, partial $R^2$) before second-stage estimation. Candidate instruments include interactions of eligibility indicators with time exposure and cross-sectional threshold instruments for cumulative ERDF exposure.
+
+Headline IV is selected by the documented rule: choose the strongest candidate with first-stage F$\geq$10 for the headline outcome window; otherwise revert to conservative TWFE interpretation.
+
+\section{Results}
+\subsection{TWFE benchmark estimates}
+Table~\ref{tab:twfe} reports Models A and B for real growth; Table~\ref{tab:dl} reports distributed lags. Figure~\ref{fig:dynamic} visualizes dynamic lag estimates.
+
+\begin{table}[H]
+\centering
+\caption{TWFE benchmark (headline outcome: real growth)}
+\label{tab:twfe}
+\small
+\input{tables/twfe_main.tex}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Distributed lags (Model C, headline outcome)}
+\label{tab:dl}
+\small
+\input{tables/distributed_lags.tex}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\begin{subfigure}{0.49\textwidth}
+\centering
+\includegraphics[width=\linewidth]{dynamic_lag_response_v31.png}
+\caption{Dynamic lag response}
+\end{subfigure}
+\begin{subfigure}{0.49\textwidth}
+\centering
+\includegraphics[width=\linewidth]{sigma_convergence_v31.png}
+\caption{Sigma convergence}
+\end{subfigure}
+\caption{Dynamic treatment profile and convergence trend}
+\label{fig:dynamic}
+\end{figure}
+
+\subsection{RD diagnostics and sharp RD}
+Table~\ref{tab:rd-fs} and Figure~\ref{fig:rd-fs} show weak funding discontinuity at 75 (F-statistics below conventional strength thresholds). Table~\ref{tab:rd-out} reports sharp-RD ITT estimates; Table~\ref{tab:rd-placebo} reports placebo pre-trend.
+
+\begin{table}[H]
+\centering
+\caption{RD first-stage funding jump diagnostics at 75 cutoff}
+\label{tab:rd-fs}
+\small
+\input{tables/rd_first_stage.tex}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\begin{subfigure}{0.49\textwidth}
+\centering
+\includegraphics[width=\linewidth]{rd_first_stage_funding_jump_v31.png}
+\caption{Funding jump at cutoff}
+\end{subfigure}
+\begin{subfigure}{0.49\textwidth}
+\centering
+\includegraphics[width=\linewidth]{rd_outcome_binned_scatter_v31.png}
+\caption{Outcome sharp RD}
+\end{subfigure}
+\caption{RD diagnostics and reduced-form eligibility discontinuity}
+\label{fig:rd-fs}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{Sharp RD outcome discontinuities (eligibility ITT)}
+\label{tab:rd-out}
+\small
+\input{tables/rd_outcomes.tex}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{RD placebo pre-trend test}
+\label{tab:rd-placebo}
+\small
+\input{tables/rd_placebo.tex}
+\end{table}
+
+\subsection{IV diagnostics and headline IV}
+Table~\ref{tab:iv-candidates} summarizes first-stage diagnostics across candidates. The selected headline design is cross-sectional 2SLS using cumulative exposure instrumented by \texttt{eligible\_lt90}. Table~\ref{tab:iv-cross} reports those estimates; panel IV is reported in Table~\ref{tab:iv-panel}.
+
+\begin{table}[H]
+\centering
+\caption{IV first-stage candidate diagnostics}
+\label{tab:iv-candidates}
+\tiny
+\input{tables/iv_candidates.tex}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Cross-sectional 2SLS (headline IV family)}
+\label{tab:iv-cross}
+\small
+\input{tables/iv_cross_section.tex}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Panel 2SLS (selected panel candidate)}
+\label{tab:iv-panel}
+\small
+\input{tables/iv_panel.tex}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.62\textwidth]{iv_first_stage_scatter_v31.png}
+\caption{IV first stage: fitted vs observed cumulative exposure}
+\label{fig:iv-fs}
+\end{figure}
+
+\subsection{Comparison and convergence}
+Table~\ref{tab:comparison} compiles the main estimator families. Table~\ref{tab:beta} summarizes beta convergence evidence.
+
+\begin{table}[H]
+\centering
+\caption{Model comparison summary (V3.1)}
+\label{tab:comparison}
+\footnotesize
+\input{tables/model_comparison.tex}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Beta convergence (Model D)}
+\label{tab:beta}
+\small
+\input{tables/beta_convergence.tex}
+\end{table}
+
+\section{Discussion and limitations}
+\begin{itemize}[leftmargin=1.2em]
+    \item \textbf{Weak fuzzy RD:} at the 75 cutoff, first-stage funding-jump F-statistics remain below 2 across bandwidths, so fuzzy RD is not credible for ERDF LATE.
+    \item \textbf{IV assumptions:} the headline cross-sectional IV depends on exclusion and monotonicity assumptions tied to policy thresholds; estimates should be interpreted as design-based but assumption-dependent.
+    \item \textbf{Coverage mismatch:} eligibility/running-variable mapping does not cover all region-year observations in the full panel because of NUTS revision overlap.
+    \item \textbf{Outcome construction:} real GDP per capita is reconstructed from volume indices anchored to nominal levels, not direct chain-linked euro series.
+\end{itemize}
+
+\section{Conclusion}
+With the currently available policy structure and data, V3.1 supports a cautious interpretation: convergence patterns are robustly negative in beta terms and declining in sigma terms, while direct ERDF growth effects remain sensitive to estimator choice. RD funding-jump diagnostics indicate weak support for fuzzy RD identification at the 75 threshold. The strongest available design in this pipeline is cross-sectional IV with cumulative exposure instrumented by \texttt{eligible\_lt90}, which achieves a stronger first stage but still yields imprecise headline effects. The defensible claim is therefore limited: evidence is consistent with non-zero policy impacts in some specifications, but large causal claims are not yet supported without stronger quasi-experimental variation.
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}
