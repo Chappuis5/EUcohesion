@@ -1,0 +1,7 @@
+model,term,horizon,coef,std_err,t_stat,p_value,ci_95_lower,ci_95_upper,n_obs,n_regions,fe_type,clustering,sample_year_min,sample_year_max,controls_used
+Model Placebo Leads-Lags,erdf_eur_pc_f2,-2,0.003512644497,0.004505496697,0.7796353506,0.435605542,-0.005317966762,0.01234325576,822,223,year,nuts2,2019,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
+Model Placebo Leads-Lags,erdf_eur_pc_f1,-1,0.00091685991,0.004108653763,0.2231533643,0.8234161466,-0.007135953491,0.008969673311,822,223,year,nuts2,2019,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
+Model Placebo Leads-Lags,erdf_eur_pc,0,0.006911044676,0.004599227459,1.502653378,0.1329284511,-0.002103275501,0.01592536485,822,223,year,nuts2,2019,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
+Model Placebo Leads-Lags,erdf_eur_pc_l1,1,0.01512816669,0.005749546346,2.631193103,0.008508567555,0.003859262925,0.02639707046,822,223,year,nuts2,2019,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
+Model Placebo Leads-Lags,erdf_eur_pc_l2,2,0.01518384397,0.004951411924,3.066568526,0.002165311691,0.005479254923,0.02488843301,822,223,year,nuts2,2019,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
+Model Placebo Leads-Lags,erdf_eur_pc_l3,3,0.009426645183,0.00427173871,2.206746672,0.02733176257,0.001054191161,0.0177990992,822,223,year,nuts2,2019,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"

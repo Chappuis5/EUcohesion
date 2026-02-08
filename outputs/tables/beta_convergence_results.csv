@@ -1,0 +1,18 @@
+model,term,coef,std_err,t_stat,p_value,ci_95_lower,ci_95_upper,n_obs,n_regions,fe_type,clustering,sample_year_min,sample_year_max,controls_used
+Model D,log_gdp_pc_l1,-33.49632457,2.507913991,-13.35624933,1.08915333e-40,-38.41174567,-28.58090347,1959,285,year,nuts2,2017,2023,
+Model E,log_gdp_pc_l1,-24.16082693,3.904633661,-6.18773207,6.103595299e-10,-31.81376828,-16.50788558,1175,223,year,nuts2,2017,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
+Model E,erdf_eur_pc_l1,0.06878779646,0.07204023311,0.9548524968,0.3396522952,-0.07240846588,0.2099840588,1175,223,year,nuts2,2017,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
+Model E,erdf_eur_pc_l1:log_gdp_pc_l1,-0.006853722953,0.007365755009,-0.9304847833,0.3521201391,-0.02129033749,0.007582891583,1175,223,year,nuts2,2017,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
+Model E,unemp_rate,-0.3620298676,0.1014689283,-3.567888945,0.0003598689603,-0.5609053127,-0.1631544226,1175,223,year,nuts2,2017,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
+Model E,emp_rate,-0.07758997087,0.1098088686,-0.7065911147,0.4798206122,-0.2928113985,0.1376314568,1175,223,year,nuts2,2017,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
+Model E,tertiary_share_25_64,-0.2541268999,0.1090728278,-2.329882749,0.01981234901,-0.4679057141,-0.04034808573,1175,223,year,nuts2,2017,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
+Model E,rd_gerd,-0.7621963238,0.6224463355,-1.224517328,0.2207571335,-1.982168724,0.4577760762,1175,223,year,nuts2,2017,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
+Model E,gva,0.2573734539,0.05331237052,4.827649781,1.381537742e-06,0.1528831277,0.36186378,1175,223,year,nuts2,2017,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
+Model E (country-year FE),log_gdp_pc_l1,-57.98370502,5.316845054,-10.90566011,1.083043097e-27,-68.40452984,-47.5628802,1175,223,country_year,nuts2,2017,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
+Model E (country-year FE),erdf_eur_pc_l1,0.008530995287,0.04390131737,0.1943220795,0.8459236982,-0.07751400564,0.09457599621,1175,223,country_year,nuts2,2017,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
+Model E (country-year FE),erdf_eur_pc_l1:log_gdp_pc_l1,-0.000723759798,0.004468860158,-0.1619562422,0.8713403125,-0.00948256476,0.008035045163,1175,223,country_year,nuts2,2017,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
+Model E (country-year FE),unemp_rate,-0.09419122133,0.1321722735,-0.7126397906,0.4760686828,-0.3532441172,0.1648616746,1175,223,country_year,nuts2,2017,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
+Model E (country-year FE),emp_rate,0.04141086813,0.1391303829,0.2976407256,0.765977388,-0.2312796715,0.3141014078,1175,223,country_year,nuts2,2017,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
+Model E (country-year FE),tertiary_share_25_64,-0.2057187031,0.08706898115,-2.362709434,0.01814188747,-0.3763707704,-0.03506663592,1175,223,country_year,nuts2,2017,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
+Model E (country-year FE),rd_gerd,-0.4925804911,0.5485951987,-0.8978942802,0.3692419143,-1.567807323,0.5826463405,1175,223,country_year,nuts2,2017,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
+Model E (country-year FE),gva,0.2828870968,0.06927494609,4.083541205,4.435456017e-05,0.1471106974,0.4186634962,1175,223,country_year,nuts2,2017,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"

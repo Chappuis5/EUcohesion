@@ -1,0 +1,5 @@
+model,term,horizon,coef,std_err,t_stat,p_value,ci_95_lower,ci_95_upper,n_obs,n_regions,fe_type,clustering,sample_year_min,sample_year_max,controls_used
+Model C (with l0),erdf_eur_pc,0,-0.002975988795,0.004625968552,-0.6433223144,0.52001498,-0.01204272055,0.006090742961,861,223,year,nuts2,2019,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
+Model C (with l0),erdf_eur_pc_l1,1,0.009420767166,0.005307413559,1.775020367,0.07589452426,-0.0009815722616,0.01982310659,861,223,year,nuts2,2019,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
+Model C (with l0),erdf_eur_pc_l2,2,0.01297586544,0.00494753148,2.622694871,0.008723736277,0.003278881923,0.02267284895,861,223,year,nuts2,2019,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
+Model C (with l0),erdf_eur_pc_l3,3,0.004555284812,0.003819865629,1.192524883,0.2330555,-0.002931514247,0.01204208387,861,223,year,nuts2,2019,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"

@@ -1,0 +1,9 @@
+model,term,coef,std_err,t_stat,p_value,ci_95_lower,ci_95_upper,n_obs,n_regions,fe_type,clustering,sample_year_min,sample_year_max,controls_used
+Model C,erdf_eur_pc_l1,0.009875731839,0.005233985018,1.886847556,0.05918083265,-0.0003826902923,0.02013415397,861,223,year,nuts2,2019,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
+Model C,erdf_eur_pc_l2,0.01399185081,0.00505241566,2.769338817,0.005617018913,0.004089298079,0.02389440354,861,223,year,nuts2,2019,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
+Model C,erdf_eur_pc_l3,0.005599091043,0.003790945864,1.476964126,0.1396852539,-0.001831026318,0.0130292084,861,223,year,nuts2,2019,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
+Model C,unemp_rate,-0.5202352827,0.1758756675,-2.957971902,0.003096703495,-0.8649452566,-0.1755253087,861,223,year,nuts2,2019,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
+Model C,emp_rate,-0.1655475693,0.1820643366,-0.9092806003,0.3632020282,-0.5223871118,0.1912919733,861,223,year,nuts2,2019,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
+Model C,tertiary_share_25_64,-0.1951864198,0.1487755007,-1.3119527,0.1895360945,-0.486781043,0.09640820334,861,223,year,nuts2,2019,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
+Model C,rd_gerd,-0.9009122885,0.9433883209,-0.9549750284,0.3395903254,-2.749919421,0.9480948439,861,223,year,nuts2,2019,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
+Model C,gva,0.199430061,0.05643775198,3.533628715,0.0004098964472,0.08881409978,0.3100460223,861,223,year,nuts2,2019,2023,"unemp_rate,emp_rate,tertiary_share_25_64,rd_gerd,gva"
