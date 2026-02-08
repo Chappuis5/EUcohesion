@@ -1,0 +1,7 @@
+estimator_family,model,outcome,term,coef,std_err,p_value,ci_95_lower,ci_95_upper,n_obs,n_regions,fe_type,clustering,window,n_regions_right,first_stage_f_stat
+IV,IV 2SLS (panel),gdp_pc_real_growth,erdf_eur_pc_l1,0.004231819869,0.05906971507,0.9428875242,-0.1115426942,0.120006334,1175,223,year,nuts2,panel_post2014_instrument,,1.538019007
+RD,fuzzy_rd (bw=10),gdp_pc_real_growth_post_2016_2020,erdf_eur_pc_cum_2014_2020,-0.0003044206019,0.002537506278,0.9045081697,-0.005277841517,0.004669000313,53,24,local_linear,HC1,post_2016_2020,29,
+RD,sharp_rd (bw=10),gdp_pc_real_growth_post_2016_2020,eligible_lt75,-0.1588087945,1.375125184,0.9080592898,-2.854004629,2.53638704,53,24,local_linear,HC1,post_2016_2020,29,
+TWFE,Model A,gdp_pc_real_growth,erdf_eur_pc_l1,0.005679637106,0.003024505711,0.06039856376,-0.0002482851593,0.01160755937,1175,223,year,nuts2,panel,,
+TWFE,Model B,gdp_pc_real_growth,erdf_eur_pc_l1,0.003361760426,0.00288822826,0.2444432728,-0.002299062943,0.009022583794,1175,223,country_year,nuts2,panel,,
+TWFE-dynamic,Model C,gdp_pc_real_growth,erdf_eur_pc_l1,0.01199928471,0.004849873994,0.01335560017,0.002493706354,0.02150486307,861,223,year,nuts2,panel,,

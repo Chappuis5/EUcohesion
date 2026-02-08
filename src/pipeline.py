@@ -490,6 +490,132 @@ def load_eligibility_categories() -> pd.DataFrame:
     return eligibility
 
 
+def load_pps_relative_eu_series() -> pd.DataFrame:
+    file_name = config.RAW_FILES["gdp_pc_pps_rel_eu"]
+    df = read_raw_csv(file_name)
+    df = apply_dimension_filters(df, file_name)
+    df = standardize_keys(df, file_name)
+
+    value_column = infer_value_column(df, file_name)
+    if value_column is None:
+        raise ValueError(f"Could not infer PPS relative-to-EU value column for {file_name}.")
+
+    df["r_value_raw"] = parse_numeric_series(df[value_column])
+    df = df.dropna(subset=["r_value_raw"])
+
+    ratio = (
+        df.groupby(KEY_COLUMNS, as_index=False, sort=True)["r_value_raw"]
+        .mean()
+        .sort_values(KEY_COLUMNS)
+        .reset_index(drop=True)
+    )
+    assert_unique_keys(ratio, "pps_relative_eu")
+    return ratio
+
+
+def build_running_variable_eligibility(
+    pps_relative: pd.DataFrame,
+    eligibility: pd.DataFrame,
+) -> pd.DataFrame:
+    records: List[Dict[str, object]] = []
+
+    for nuts2_id, region_df in pps_relative.groupby("nuts2_id", sort=True):
+        region_sorted = region_df.sort_values("year")
+        reference = region_sorted[region_sorted["year"].isin([2007, 2008, 2009])]
+
+        if not reference.empty:
+            r_value = float(reference["r_value_raw"].mean())
+            ref_years_used = ",".join(str(year) for year in sorted(reference["year"].unique().tolist()))
+        else:
+            fallback = region_sorted[region_sorted["year"] <= 2013]
+            if fallback.empty:
+                continue
+            r_value = float(fallback["r_value_raw"].mean())
+            fallback_years = ",".join(str(year) for year in sorted(fallback["year"].unique().tolist()))
+            ref_years_used = f"fallback_<=2013:{fallback_years}"
+
+        records.append(
+            {
+                "nuts2_id": nuts2_id,
+                "country": nuts2_id[:2],
+                "r_value": r_value,
+                "eligible_lt75": int(r_value < 75.0),
+                "ref_years_used": ref_years_used,
+            }
+        )
+
+    running = pd.DataFrame(records)
+    if running.empty:
+        raise ValueError(
+            "Running variable construction produced an empty dataset. "
+            "Check cached PPS relative-to-EU raw input."
+        )
+
+    running = running.merge(
+        eligibility[["nuts2_id", "category_2014_2020"]],
+        on="nuts2_id",
+        how="left",
+        validate="one_to_one",
+    )
+
+    # Fallback category assignment if any category is absent in mapping.
+    missing_category = running["category_2014_2020"].isna()
+    running.loc[missing_category & (running["r_value"] < 75), "category_2014_2020"] = "less_developed"
+    running.loc[
+        missing_category & running["r_value"].between(75, 90, inclusive="left"),
+        "category_2014_2020",
+    ] = "transition"
+    running.loc[missing_category & (running["r_value"] >= 90), "category_2014_2020"] = "more_developed"
+
+    running = running.sort_values("nuts2_id").reset_index(drop=True)
+    return running[
+        [
+            "nuts2_id",
+            "country",
+            "r_value",
+            "eligible_lt75",
+            "category_2014_2020",
+            "ref_years_used",
+        ]
+    ]
+
+
+def build_erdf_cumulative_exposure(panel: pd.DataFrame) -> pd.DataFrame:
+    base = panel.copy()
+    base["erdf_eur_pc"] = pd.to_numeric(base["erdf_eur_pc"], errors="coerce").fillna(0.0)
+
+    cum_2014_2020 = (
+        base[base["year"].between(2014, 2020)]
+        .groupby("nuts2_id", as_index=False)["erdf_eur_pc"]
+        .sum()
+        .rename(columns={"erdf_eur_pc": "erdf_eur_pc_cum_2014_2020"})
+    )
+
+    cum_2015_2020 = (
+        base[base["year"].between(2015, 2020)]
+        .groupby("nuts2_id", as_index=False)["erdf_eur_pc"]
+        .sum()
+        .rename(columns={"erdf_eur_pc": "erdf_eur_pc_cum_2015_2020"})
+    )
+
+    exposure = cum_2014_2020.merge(cum_2015_2020, on="nuts2_id", how="outer")
+    exposure = exposure.merge(
+        base[["nuts2_id", "country"]].drop_duplicates(subset=["nuts2_id"]),
+        on="nuts2_id",
+        how="left",
+        validate="one_to_one",
+    )
+    exposure = exposure.sort_values("nuts2_id").reset_index(drop=True)
+    return exposure[
+        [
+            "nuts2_id",
+            "country",
+            "erdf_eur_pc_cum_2014_2020",
+            "erdf_eur_pc_cum_2015_2020",
+        ]
+    ]
+
+
 def build_panel_skeleton(datasets: Iterable[pd.DataFrame]) -> pd.DataFrame:
     region_sets: List[set] = []
     min_year: Optional[int] = None
@@ -999,9 +1125,14 @@ def build_dataset_pipeline(write_panel_csv: bool = True, fetch_missing_raw: bool
     gdp_nominal = load_nominal_gdp_series()
     gdp_pps = load_gdp_pc_pps_series()
     gdp_real_index = load_gdp_real_index_series()
+    pps_relative = load_pps_relative_eu_series()
     treatment = load_treatment_erdf()
     controls = build_controls()
     eligibility = load_eligibility_categories()
+    running_variable = build_running_variable_eligibility(
+        pps_relative=pps_relative,
+        eligibility=eligibility,
+    )
 
     skeleton = build_panel_skeleton([population, gdp_nominal, gdp_pps, gdp_real_index, treatment, controls])
 
@@ -1019,6 +1150,21 @@ def build_dataset_pipeline(write_panel_csv: bool = True, fetch_missing_raw: bool
         treatment=treatment,
         controls=controls,
         eligibility=eligibility,
+    )
+
+    panel = panel.merge(
+        running_variable[["nuts2_id", "r_value", "eligible_lt75", "ref_years_used"]],
+        on="nuts2_id",
+        how="left",
+        validate="many_to_one",
+    )
+
+    erdf_cumulative = build_erdf_cumulative_exposure(panel)
+    panel = panel.merge(
+        erdf_cumulative,
+        on=["nuts2_id", "country"],
+        how="left",
+        validate="many_to_one",
     )
 
     sigma = build_sigma_convergence(panel)
@@ -1049,6 +1195,8 @@ def build_dataset_pipeline(write_panel_csv: bool = True, fetch_missing_raw: bool
     if write_panel_csv:
         write_csv(panel, config.PANEL_MASTER_CSV)
     write_csv(sigma, config.SIGMA_CONVERGENCE_CSV)
+    write_csv(running_variable, config.RUNNING_VARIABLE_ELIGIBILITY_CSV)
+    write_csv(erdf_cumulative, config.ERDF_CUMULATIVE_EXPOSURE_CSV)
 
     # QA tables
     quality_summary = build_data_quality_summary(panel)
@@ -1089,13 +1237,15 @@ def build_dataset_pipeline(write_panel_csv: bool = True, fetch_missing_raw: bool
     plot_growth_comparison(panel, config.QA_FIGURES["growth_comparison_trend"])
 
     print(
-        "[build_dataset] Built V2 panel_master, QA tables/figures, and sigma convergence outputs."
+        "[build_dataset] Built V3 panel_master, running-variable/cumulative exposure files, QA outputs, and sigma convergence."
     )
 
     return {
         "panel_master_parquet": config.PANEL_MASTER_PARQUET,
         "panel_master_csv": config.PANEL_MASTER_CSV,
         "sigma_convergence": config.SIGMA_CONVERGENCE_CSV,
+        "running_variable_eligibility": config.RUNNING_VARIABLE_ELIGIBILITY_CSV,
+        "erdf_cumulative_exposure": config.ERDF_CUMULATIVE_EXPOSURE_CSV,
         **{f"interim_{name}": path for name, path in config.INTERIM_FILES.items()},
         **{f"qa_table_{name}": path for name, path in config.QA_TABLES.items()},
         **{f"qa_figure_{name}": path for name, path in config.QA_FIGURES.items()},

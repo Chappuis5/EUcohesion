@@ -6,3 +6,5 @@ statsmodels>=0.14
 nbformat>=5.10
 nbclient>=0.10
 ipykernel>=6.29
+linearmodels>=5.4
+plotly>=5.20

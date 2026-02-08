@@ -2,9 +2,12 @@ column,dtype,missing_pct
 category_2014_2020,string,0.2989949749
 country,object,0
 country_year,object,0
+eligible_lt75,Int64,0
 emp_rate,Float64,0.7648241206
 erdf_eur,Int64,0
 erdf_eur_pc,float64,0.8054648241
+erdf_eur_pc_cum_2014_2020,float64,0
+erdf_eur_pc_cum_2015_2020,float64,0
 erdf_eur_pc_f1,float64,0.8054648241
 erdf_eur_pc_f2,float64,0.8054648241
 erdf_eur_pc_l1,float64,0.8230527638
@@ -29,7 +32,9 @@ log_gdp_pc_real,float64,0.6052763819
 log_gdp_pc_real_l1,float64,0.6052763819
 nuts2_id,object,0
 population,Float64,0.8054648241
+r_value,float64,0.2989949749
 rd_gerd,Float64,0.8548994975
+ref_years_used,object,0.2989949749
 tertiary_share_25_64,Float64,0.7655778894
 unemp_rate,Float64,0.7670854271
 year,int64,0

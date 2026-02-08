@@ -1,0 +1,5 @@
+outcome,model,fe_type,term,coef,std_err,t_stat,p_value,ci_95_lower,ci_95_upper,n_obs,n_regions,first_stage_f_stat
+gdp_pc_pps_growth,IV first stage,year,z_eligible_intensity,0.1636875876,0.1478362585,1.107222201,0.2681978711,-0.1260661548,0.4534413299,1175,223,1.538019007
+gdp_pc_pps_growth,IV first stage,year,z_eligible_intensity,0.1636875876,0.1478362585,1.107222201,0.2681978711,-0.1260661548,0.4534413299,1175,223,0.5607984571
+gdp_pc_real_growth,IV first stage,year,z_eligible_intensity,0.1636875876,0.1478362585,1.107222201,0.2681978711,-0.1260661548,0.4534413299,1175,223,1.538019007
+gdp_pc_real_growth,IV first stage,year,z_eligible_intensity,0.1636875876,0.1478362585,1.107222201,0.2681978711,-0.1260661548,0.4534413299,1175,223,0.5607984571

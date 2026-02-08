@@ -24,6 +24,7 @@ REQUIRED_RAW_FILES = [
     # V2 cached files (downloaded once and then reused offline).
     "eurostat_gdp_pc_pps_nuts2.csv",
     "eurostat_gdp_real_nuts2.csv",
+    "eurostat_gdp_pc_pps_rel_eu_nuts2.csv",
     "eligibility_categories_2014_2020.csv",
 ]
 
@@ -34,6 +35,7 @@ RAW_FILES = {
     "gdp": "eurostat_nama_10r_2gdp.csv",
     "gdp_pc_pps": "eurostat_gdp_pc_pps_nuts2.csv",
     "gdp_real": "eurostat_gdp_real_nuts2.csv",
+    "gdp_pc_pps_rel_eu": "eurostat_gdp_pc_pps_rel_eu_nuts2.csv",
     "eligibility_categories": "eligibility_categories_2014_2020.csv",
     "unemployment": "eurostat_tgs00010_unemployment_rate.csv",
     "employment": "eurostat_tgs00007_employment_rate.csv",
@@ -45,6 +47,7 @@ RAW_FILES = {
 V2_DOWNLOAD_TARGETS = [
     RAW_FILES["gdp_pc_pps"],
     RAW_FILES["gdp_real"],
+    RAW_FILES["gdp_pc_pps_rel_eu"],
     RAW_FILES["eligibility_categories"],
 ]
 
@@ -75,6 +78,11 @@ COLUMN_FALLBACKS = {
         "nuts2": "geo",
         "year": "time",
         "value_candidates": ["obs_value", "gdp_volume_index"],
+    },
+    RAW_FILES["gdp_pc_pps_rel_eu"]: {
+        "nuts2": "geo",
+        "year": "time",
+        "value_candidates": ["obs_value"],
     },
     RAW_FILES["eligibility_categories"]: {
         "nuts2": "nuts2_id",
@@ -112,6 +120,7 @@ EUROSTAT_FILTERS = {
     RAW_FILES["gdp"]: {"freq": "A", "unit": "MIO_EUR"},
     RAW_FILES["gdp_pc_pps"]: {"freq": "A", "unit": "PPS_EU27_2020_HAB"},
     RAW_FILES["gdp_real"]: {"freq": "A", "na_item": "B1GQ", "unit": "I15"},
+    RAW_FILES["gdp_pc_pps_rel_eu"]: {"freq": "A", "unit": "PPS_HAB_EU27_2020"},
     RAW_FILES["unemployment"]: {
         "freq": "A",
         "unit": "PC",
@@ -137,6 +146,8 @@ UNKNOWN_NUTS2_SUFFIXES = ("ZZ", "XX")
 PANEL_MASTER_PARQUET = DATA_PROCESSED_DIR / "panel_master.parquet"
 PANEL_MASTER_CSV = DATA_PROCESSED_DIR / "panel_master.csv"
 SIGMA_CONVERGENCE_CSV = DATA_PROCESSED_DIR / "sigma_convergence.csv"
+RUNNING_VARIABLE_ELIGIBILITY_CSV = DATA_PROCESSED_DIR / "running_variable_eligibility.csv"
+ERDF_CUMULATIVE_EXPOSURE_CSV = DATA_PROCESSED_DIR / "erdf_cumulative_exposure.csv"
 
 INTERIM_FILES = {
     "panel_skeleton": DATA_INTERIM_DIR / "panel_skeleton.csv",

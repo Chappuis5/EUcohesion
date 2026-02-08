@@ -9,8 +9,12 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import nbformat
 import numpy as np
 import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
 import statsmodels.formula.api as smf
+from linearmodels.iv import IV2SLS
 from nbclient import NotebookClient
+from plotly.io import to_html
 
 from src import config
 from src import viz
@@ -70,6 +74,32 @@ FIGURE_PATHS_V2 = {
     "beta_partial": OUTPUT_FIGURES_DIR / "beta_convergence_partial_v2.png",
 }
 
+TABLE_PATHS_V3 = {
+    "twfe_main": OUTPUT_TABLES_DIR / "twfe_main_results_v3.csv",
+    "dl_lags": OUTPUT_TABLES_DIR / "dl_lags_results_v3.csv",
+    "dynamic_lag": OUTPUT_TABLES_DIR / "dynamic_lag_response_v3.csv",
+    "leads_lags": OUTPUT_TABLES_DIR / "leads_lags_results_v3.csv",
+    "beta": OUTPUT_TABLES_DIR / "beta_convergence_results_v3.csv",
+    "heterogeneity": OUTPUT_TABLES_DIR / "heterogeneity_by_category_v3.csv",
+    "robust_outliers": OUTPUT_TABLES_DIR / "robustness_outliers_v3.csv",
+    "robust_balanced": OUTPUT_TABLES_DIR / "robustness_balanced_panel_v3.csv",
+    "robust_scaling": OUTPUT_TABLES_DIR / "robustness_scaling_v3.csv",
+    "rd_main": OUTPUT_TABLES_DIR / "rd_main_results_v3.csv",
+    "rd_placebo": OUTPUT_TABLES_DIR / "rd_placebo_pretrend_v3.csv",
+    "iv_2sls": OUTPUT_TABLES_DIR / "iv_2sls_results_v3.csv",
+    "iv_first_stage": OUTPUT_TABLES_DIR / "iv_first_stage_v3.csv",
+    "model_summary": OUTPUT_TABLES_DIR / "model_comparison_summary_v3.csv",
+}
+
+FIGURE_PATHS_V3 = {
+    "dynamic_lag": OUTPUT_FIGURES_DIR / "dynamic_lag_response_v3.png",
+    "leads_lags": OUTPUT_FIGURES_DIR / "leads_lags_placebo_v3.png",
+    "sigma": OUTPUT_FIGURES_DIR / "sigma_convergence_v3.png",
+    "beta_partial": OUTPUT_FIGURES_DIR / "beta_convergence_partial_v3.png",
+    "rd_binned": OUTPUT_FIGURES_DIR / "rd_binned_scatter_v3.png",
+    "rd_bandwidth": OUTPUT_FIGURES_DIR / "rd_bandwidth_sensitivity_v3.png",
+}
+
 VALID_CATEGORIES = ["less_developed", "transition", "more_developed"]
 
 
@@ -99,6 +129,28 @@ class RegressionRun:
     @property
     def year_max(self) -> int:
         return int(self.sample_df["year"].max())
+
+
+@dataclass
+class RDEstimate:
+    estimator: str
+    outcome: str
+    window: str
+    bandwidth: float
+    coef: float
+    std_err: float
+    t_stat: float
+    p_value: float
+    ci_95_lower: float
+    ci_95_upper: float
+    n_obs: int
+    n_left: int
+    n_right: int
+    cutoff: float
+    kernel: str
+    polynomial_order: int
+    treatment_var: str
+    first_stage_f_stat: float = np.nan
 
 
 def _ensure_output_dirs() -> None:
@@ -194,6 +246,58 @@ def load_analysis_inputs() -> Tuple[pd.DataFrame, pd.DataFrame]:
     return panel, sigma
 
 
+def load_identification_inputs() -> Tuple[pd.DataFrame, pd.DataFrame]:
+    running_path = config.RUNNING_VARIABLE_ELIGIBILITY_CSV
+    exposure_path = config.ERDF_CUMULATIVE_EXPOSURE_CSV
+
+    if not running_path.exists():
+        raise FileNotFoundError(
+            f"Missing input file: {running_path}. "
+            "Run scripts/run_pipeline.py to generate V3 running-variable outputs."
+        )
+    if not exposure_path.exists():
+        raise FileNotFoundError(
+            f"Missing input file: {exposure_path}. "
+            "Run scripts/run_pipeline.py to generate V3 cumulative exposure outputs."
+        )
+
+    running = pd.read_csv(running_path)
+    exposure = pd.read_csv(exposure_path)
+
+    _validate_columns(
+        running,
+        ["nuts2_id", "country", "r_value", "eligible_lt75", "category_2014_2020", "ref_years_used"],
+        running_path,
+        "scripts/build_dataset.py (src/pipeline.py)",
+    )
+    _validate_columns(
+        exposure,
+        ["nuts2_id", "country", "erdf_eur_pc_cum_2014_2020", "erdf_eur_pc_cum_2015_2020"],
+        exposure_path,
+        "scripts/build_dataset.py (src/pipeline.py)",
+    )
+
+    running["nuts2_id"] = running["nuts2_id"].astype("string").str.strip().str.upper()
+    running["country"] = running["country"].astype("string").str.strip().str.upper()
+    running["r_value"] = pd.to_numeric(running["r_value"], errors="coerce")
+    running["eligible_lt75"] = pd.to_numeric(running["eligible_lt75"], errors="coerce")
+    running = running.dropna(subset=["nuts2_id", "r_value", "eligible_lt75"]).copy()
+    running["eligible_lt75"] = (running["eligible_lt75"] > 0).astype(int)
+    running = running.drop_duplicates(subset=["nuts2_id"], keep="first").reset_index(drop=True)
+
+    exposure["nuts2_id"] = exposure["nuts2_id"].astype("string").str.strip().str.upper()
+    exposure["country"] = exposure["country"].astype("string").str.strip().str.upper()
+    exposure["erdf_eur_pc_cum_2014_2020"] = pd.to_numeric(
+        exposure["erdf_eur_pc_cum_2014_2020"], errors="coerce"
+    )
+    exposure["erdf_eur_pc_cum_2015_2020"] = pd.to_numeric(
+        exposure["erdf_eur_pc_cum_2015_2020"], errors="coerce"
+    )
+    exposure = exposure.drop_duplicates(subset=["nuts2_id"], keep="first").reset_index(drop=True)
+
+    return running, exposure
+
+
 def get_available_controls(panel: pd.DataFrame) -> List[str]:
     available = [column for column in REQUESTED_CONTROLS if column in panel.columns]
     missing = sorted(set(REQUESTED_CONTROLS) - set(available))
@@ -230,6 +334,10 @@ def prepare_analysis_panel(panel: pd.DataFrame) -> pd.DataFrame:
         "erdf_eur_pc_l1",
         "erdf_eur_pc_l2",
         "erdf_eur_pc_l3",
+        "erdf_eur_pc_cum_2014_2020",
+        "erdf_eur_pc_cum_2015_2020",
+        "r_value",
+        "eligible_lt75",
         "gdp_pc_growth",
         "gdp_pc_pps_growth",
         "gdp_pc_real_growth",
@@ -259,6 +367,9 @@ def prepare_analysis_panel(panel: pd.DataFrame) -> pd.DataFrame:
         .str.replace(r"[^a-z]+", "_", regex=True)
         .str.strip("_")
     )
+
+    if "eligible_lt75" in prepared.columns:
+        prepared["eligible_lt75"] = (pd.to_numeric(prepared["eligible_lt75"], errors="coerce") > 0).astype("Int64")
 
     return prepared
 
@@ -970,6 +1081,724 @@ def run_robustness(
     )
 
 
+def _extract_first_stage_f_stat(first_stage_diagnostics: object) -> float:
+    if first_stage_diagnostics is None:
+        return float("nan")
+
+    if isinstance(first_stage_diagnostics, pd.DataFrame):
+        if first_stage_diagnostics.empty:
+            return float("nan")
+        row = first_stage_diagnostics.iloc[0]
+        for candidate in ["f.stat", "f_stat", "f", "partial_f_stat"]:
+            if candidate in row.index:
+                value = pd.to_numeric(row[candidate], errors="coerce")
+                if pd.notna(value):
+                    return float(value)
+        for value in row.values.tolist():
+            numeric = pd.to_numeric(value, errors="coerce")
+            if pd.notna(numeric):
+                return float(numeric)
+        return float("nan")
+
+    try:
+        numeric = pd.to_numeric(first_stage_diagnostics, errors="coerce")
+        if pd.notna(numeric):
+            return float(numeric)
+    except Exception:  # noqa: BLE001
+        return float("nan")
+    return float("nan")
+
+
+def _rd_sample(
+    df: pd.DataFrame,
+    outcome: str,
+    treatment: Optional[str],
+    bandwidth: float,
+    cutoff: float,
+) -> pd.DataFrame:
+    required = ["r_value", "eligible_lt75", outcome]
+    if treatment is not None:
+        required.append(treatment)
+
+    missing = sorted(set(required) - set(df.columns))
+    if missing:
+        raise ValueError(
+            f"RD sample is missing required columns: {', '.join(missing)}. "
+            "These should come from panel_master and running_variable_eligibility outputs."
+        )
+
+    sample = df[required].dropna().copy()
+    sample["distance"] = sample["r_value"] - cutoff
+    sample = sample[sample["distance"].abs() <= bandwidth].copy()
+    if sample.empty:
+        raise ValueError(
+            f"RD sample is empty for outcome={outcome}, bandwidth={bandwidth}."
+        )
+
+    sample["w_tri"] = 1.0 - (sample["distance"].abs() / bandwidth)
+    sample = sample[sample["w_tri"] > 0].copy()
+
+    n_left = int((sample["distance"] < 0).sum())
+    n_right = int((sample["distance"] >= 0).sum())
+    if n_left < 10 or n_right < 10:
+        raise ValueError(
+            f"Insufficient RD support around cutoff for outcome={outcome}, bandwidth={bandwidth}. "
+            f"left={n_left}, right={n_right}"
+        )
+
+    return sample
+
+
+def estimate_sharp_rd(
+    region_df: pd.DataFrame,
+    outcome: str,
+    window: str,
+    bandwidth: float,
+    cutoff: float = 75.0,
+) -> RDEstimate:
+    sample = _rd_sample(region_df, outcome=outcome, treatment=None, bandwidth=bandwidth, cutoff=cutoff)
+    sample["running_c"] = sample["distance"]
+
+    model = smf.wls(
+        f"{outcome} ~ eligible_lt75 + running_c + eligible_lt75:running_c",
+        data=sample,
+        weights=sample["w_tri"],
+    )
+    fit = model.fit(cov_type="HC1")
+
+    coef = float(fit.params["eligible_lt75"])
+    std_err = float(fit.bse["eligible_lt75"])
+    t_stat = float(fit.tvalues["eligible_lt75"])
+    p_value = float(fit.pvalues["eligible_lt75"])
+    ci = fit.conf_int(alpha=0.05).loc["eligible_lt75"]
+
+    return RDEstimate(
+        estimator="sharp_rd",
+        outcome=outcome,
+        window=window,
+        bandwidth=float(bandwidth),
+        coef=coef,
+        std_err=std_err,
+        t_stat=t_stat,
+        p_value=p_value,
+        ci_95_lower=float(ci.iloc[0]),
+        ci_95_upper=float(ci.iloc[1]),
+        n_obs=int(sample.shape[0]),
+        n_left=int((sample["distance"] < 0).sum()),
+        n_right=int((sample["distance"] >= 0).sum()),
+        cutoff=cutoff,
+        kernel="triangular",
+        polynomial_order=1,
+        treatment_var="eligible_lt75",
+    )
+
+
+def estimate_fuzzy_rd(
+    region_df: pd.DataFrame,
+    outcome: str,
+    treatment_var: str,
+    window: str,
+    bandwidth: float,
+    cutoff: float = 75.0,
+) -> RDEstimate:
+    sample = _rd_sample(
+        region_df,
+        outcome=outcome,
+        treatment=treatment_var,
+        bandwidth=bandwidth,
+        cutoff=cutoff,
+    )
+    sample["running_c"] = sample["distance"]
+    sample["eligible_running"] = sample["eligible_lt75"] * sample["running_c"]
+
+    exog = pd.DataFrame(
+        {
+            "const": 1.0,
+            "running_c": sample["running_c"],
+            "eligible_running": sample["eligible_running"],
+        }
+    )
+    endog = sample[[treatment_var]]
+    instruments = sample[["eligible_lt75"]]
+    dependent = sample[outcome]
+    weights = sample["w_tri"]
+
+    model = IV2SLS(
+        dependent=dependent,
+        exog=exog,
+        endog=endog,
+        instruments=instruments,
+        weights=weights,
+    )
+    fit = model.fit(cov_type="robust")
+
+    coef = float(fit.params[treatment_var])
+    std_err = float(fit.std_errors[treatment_var])
+    t_stat = float(fit.tstats[treatment_var])
+    p_value = float(fit.pvalues[treatment_var])
+    ci = fit.conf_int(level=0.95).loc[treatment_var]
+
+    first_stage_f = _extract_first_stage_f_stat(getattr(fit.first_stage, "diagnostics", None))
+
+    return RDEstimate(
+        estimator="fuzzy_rd",
+        outcome=outcome,
+        window=window,
+        bandwidth=float(bandwidth),
+        coef=coef,
+        std_err=std_err,
+        t_stat=t_stat,
+        p_value=p_value,
+        ci_95_lower=float(ci.iloc[0]),
+        ci_95_upper=float(ci.iloc[1]),
+        n_obs=int(sample.shape[0]),
+        n_left=int((sample["distance"] < 0).sum()),
+        n_right=int((sample["distance"] >= 0).sum()),
+        cutoff=cutoff,
+        kernel="triangular",
+        polynomial_order=1,
+        treatment_var=treatment_var,
+        first_stage_f_stat=first_stage_f,
+    )
+
+
+def _rd_rows_to_frame(rows: Sequence[RDEstimate]) -> pd.DataFrame:
+    if not rows:
+        return pd.DataFrame(
+            columns=[
+                "estimator",
+                "outcome",
+                "window",
+                "bandwidth",
+                "coef",
+                "std_err",
+                "t_stat",
+                "p_value",
+                "ci_95_lower",
+                "ci_95_upper",
+                "n_obs",
+                "n_left",
+                "n_right",
+                "cutoff",
+                "kernel",
+                "polynomial_order",
+                "treatment_var",
+                "first_stage_f_stat",
+            ]
+        )
+    df = pd.DataFrame([row.__dict__ for row in rows])
+    return df.sort_values(["outcome", "window", "estimator", "bandwidth"]).reset_index(drop=True)
+
+
+def build_region_level_identification_frame(
+    panel: pd.DataFrame,
+    running: pd.DataFrame,
+    exposure: pd.DataFrame,
+    controls: Sequence[str],
+    outcomes: Sequence[str],
+) -> pd.DataFrame:
+    base = panel[["nuts2_id", "country", "year", *list(controls), *list(outcomes)]].copy()
+    base = base.sort_values(["nuts2_id", "year"]).reset_index(drop=True)
+
+    region = (
+        base[["nuts2_id", "country"]]
+        .drop_duplicates(subset=["nuts2_id"], keep="first")
+        .sort_values("nuts2_id")
+        .reset_index(drop=True)
+    )
+
+    for outcome in outcomes:
+        for label, start, end in [
+            ("post_2016_2020", 2016, 2020),
+            ("post_2021_2023", 2021, 2023),
+            ("pre_2010_2013", 2010, 2013),
+        ]:
+            series = (
+                base[base["year"].between(start, end)]
+                .groupby("nuts2_id", as_index=True)[outcome]
+                .mean()
+                .rename(f"{outcome}_{label}")
+            )
+            region = region.merge(series, left_on="nuts2_id", right_index=True, how="left")
+
+    for control in controls:
+        series = (
+            base[base["year"].between(2010, 2013)]
+            .groupby("nuts2_id", as_index=True)[control]
+            .mean()
+            .rename(f"{control}_pre_2010_2013")
+        )
+        region = region.merge(series, left_on="nuts2_id", right_index=True, how="left")
+
+    region = region.merge(
+        running[
+            [
+                "nuts2_id",
+                "country",
+                "r_value",
+                "eligible_lt75",
+                "category_2014_2020",
+                "ref_years_used",
+            ]
+        ],
+        on=["nuts2_id", "country"],
+        how="left",
+        validate="one_to_one",
+    )
+    region = region.merge(
+        exposure,
+        on=["nuts2_id", "country"],
+        how="left",
+        validate="one_to_one",
+    )
+    return region.sort_values("nuts2_id").reset_index(drop=True)
+
+
+def run_rd_analysis(
+    panel: pd.DataFrame,
+    running: pd.DataFrame,
+    exposure: pd.DataFrame,
+    headline_outcome: str,
+    pps_outcome: Optional[str],
+    controls: Sequence[str],
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    outcomes = [headline_outcome]
+    if pps_outcome and pps_outcome not in outcomes:
+        outcomes.append(pps_outcome)
+
+    region_df = build_region_level_identification_frame(
+        panel=panel,
+        running=running,
+        exposure=exposure,
+        controls=controls,
+        outcomes=outcomes,
+    )
+
+    baseline_bandwidth = 10.0
+    bandwidth_grid = [5.0, 7.5, 10.0, 12.5, 15.0]
+    rd_rows_main: List[RDEstimate] = []
+    rd_rows_sensitivity: List[RDEstimate] = []
+
+    for outcome in outcomes:
+        for window in ["post_2016_2020", "post_2021_2023"]:
+            outcome_col = f"{outcome}_{window}"
+            if outcome_col not in region_df.columns:
+                continue
+
+            for bw in bandwidth_grid:
+                try:
+                    sharp = estimate_sharp_rd(
+                        region_df,
+                        outcome=outcome_col,
+                        window=window,
+                        bandwidth=bw,
+                    )
+                    rd_rows_sensitivity.append(sharp)
+                    if np.isclose(bw, baseline_bandwidth):
+                        rd_rows_main.append(sharp)
+                except Exception as exc:  # noqa: BLE001
+                    LOGGER.warning(
+                        "RD sharp estimate skipped for %s (%s, bw=%s): %s",
+                        outcome,
+                        window,
+                        bw,
+                        exc,
+                    )
+
+            try:
+                fuzzy = estimate_fuzzy_rd(
+                    region_df,
+                    outcome=outcome_col,
+                    treatment_var="erdf_eur_pc_cum_2014_2020",
+                    window=window,
+                    bandwidth=baseline_bandwidth,
+                )
+                rd_rows_main.append(fuzzy)
+            except Exception as exc:  # noqa: BLE001
+                LOGGER.warning(
+                    "RD fuzzy estimate skipped for %s (%s): %s",
+                    outcome,
+                    window,
+                    exc,
+                )
+
+    rd_main = _rd_rows_to_frame(rd_rows_main)
+    rd_sensitivity = _rd_rows_to_frame(rd_rows_sensitivity)
+
+    placebo_rows: List[RDEstimate] = []
+    placebo_outcome_col = f"{headline_outcome}_pre_2010_2013"
+    if placebo_outcome_col in region_df.columns:
+        try:
+            placebo = estimate_sharp_rd(
+                region_df,
+                outcome=placebo_outcome_col,
+                window="pre_2010_2013",
+                bandwidth=baseline_bandwidth,
+            )
+            placebo_rows.append(placebo)
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.warning("RD placebo estimate skipped: %s", exc)
+
+    rd_placebo = _rd_rows_to_frame(placebo_rows)
+    return region_df, rd_main, rd_sensitivity, rd_placebo
+
+
+def run_iv_2sls_panel(
+    panel: pd.DataFrame,
+    headline_outcome: str,
+    pps_outcome: Optional[str],
+    controls: Sequence[str],
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    outcomes = [headline_outcome]
+    if pps_outcome and pps_outcome not in outcomes:
+        outcomes.append(pps_outcome)
+
+    required = [
+        "nuts2_id",
+        "country",
+        "year",
+        "country_year",
+        "eligible_lt75",
+        "erdf_eur_pc",
+        "erdf_eur_pc_l1",
+        *controls,
+    ]
+    for outcome in outcomes:
+        required.append(outcome)
+    missing = sorted(set(required) - set(panel.columns))
+    if missing:
+        raise ValueError(
+            "IV analysis missing required panel columns: "
+            f"{', '.join(missing)}. These should come from scripts/build_dataset.py (src/pipeline.py)."
+        )
+
+    work = panel[required].copy()
+
+    # Time-varying policy intensity instrument:
+    # eligible_i × EU-wide annual ERDF intensity_t.
+    yearly_intensity = work.groupby("year", as_index=True)["erdf_eur_pc"].mean()
+    work["eu_erdf_intensity_t"] = work["year"].map(yearly_intensity)
+    work["z_eligible_intensity"] = work["eligible_lt75"] * work["eu_erdf_intensity_t"]
+
+    iv_rows: List[Dict[str, object]] = []
+    first_stage_rows: List[Dict[str, object]] = []
+
+    for outcome in outcomes:
+        for fe_label, fe_expr in [("year", "C(year)"), ("country_year", "C(country_year)")]:
+            sample_cols = [
+                "nuts2_id",
+                "country",
+                "year",
+                "country_year",
+                outcome,
+                "erdf_eur_pc_l1",
+                "z_eligible_intensity",
+                *controls,
+            ]
+            sample = work[sample_cols].dropna().copy()
+            if sample.empty:
+                LOGGER.warning("IV sample empty for outcome=%s, fe=%s", outcome, fe_label)
+                continue
+            if sample["z_eligible_intensity"].std(ddof=0) == 0:
+                LOGGER.warning(
+                    "IV sample has zero instrument variance for outcome=%s, fe=%s",
+                    outcome,
+                    fe_label,
+                )
+                continue
+
+            control_terms = " + ".join(controls) if controls else ""
+            if control_terms:
+                control_terms = f"{control_terms} + "
+
+            formula = (
+                f"{outcome} ~ 1 + {control_terms}C(nuts2_id) + {fe_expr} "
+                "[erdf_eur_pc_l1 ~ z_eligible_intensity]"
+            )
+
+            clusters_nuts2 = pd.DataFrame(
+                {"nuts2_cluster": pd.Categorical(sample["nuts2_id"]).codes},
+                index=sample.index,
+            )
+            clusters_two_way = pd.DataFrame(
+                {
+                    "nuts2_cluster": pd.Categorical(sample["nuts2_id"]).codes,
+                    "country_cluster": pd.Categorical(sample["country"]).codes,
+                },
+                index=sample.index,
+            )
+
+            for clustering, clusters in [
+                ("nuts2", clusters_nuts2),
+                ("nuts2_country", clusters_two_way),
+            ]:
+                try:
+                    iv_model = IV2SLS.from_formula(formula=formula, data=sample)
+                    iv_fit = iv_model.fit(cov_type="clustered", clusters=clusters)
+                except Exception as exc:  # noqa: BLE001
+                    LOGGER.warning(
+                        "Skipping IV model (%s, %s, %s): %s",
+                        outcome,
+                        fe_label,
+                        clustering,
+                        exc,
+                    )
+                    continue
+
+                if "erdf_eur_pc_l1" not in iv_fit.params.index:
+                    LOGGER.warning(
+                        "Skipping IV model (%s, %s, %s): treatment coefficient missing.",
+                        outcome,
+                        fe_label,
+                        clustering,
+                    )
+                    continue
+
+                ci = iv_fit.conf_int(level=0.95).loc["erdf_eur_pc_l1"]
+                first_stage_f = _extract_first_stage_f_stat(
+                    getattr(iv_fit.first_stage, "diagnostics", None)
+                )
+
+                iv_rows.append(
+                    {
+                        "outcome": outcome,
+                        "model": "IV 2SLS (panel)",
+                        "fe_type": fe_label,
+                        "clustering": clustering,
+                        "term": "erdf_eur_pc_l1",
+                        "coef": float(iv_fit.params["erdf_eur_pc_l1"]),
+                        "std_err": float(iv_fit.std_errors["erdf_eur_pc_l1"]),
+                        "t_stat": float(iv_fit.tstats["erdf_eur_pc_l1"]),
+                        "p_value": float(iv_fit.pvalues["erdf_eur_pc_l1"]),
+                        "ci_95_lower": float(ci.iloc[0]),
+                        "ci_95_upper": float(ci.iloc[1]),
+                        "first_stage_f_stat": first_stage_f,
+                        "n_obs": int(iv_fit.nobs),
+                        "n_regions": int(sample["nuts2_id"].nunique()),
+                        "sample_year_min": int(sample["year"].min()),
+                        "sample_year_max": int(sample["year"].max()),
+                        "instrument": "eligible_lt75 × eu_erdf_intensity_t",
+                        "formula": formula,
+                    }
+                )
+
+                fs_formula = (
+                    f"erdf_eur_pc_l1 ~ z_eligible_intensity + {control_terms}C(nuts2_id) + {fe_expr}"
+                )
+                fs_fit = smf.ols(fs_formula, data=sample).fit(
+                    cov_type="cluster",
+                    cov_kwds={"groups": sample["nuts2_id"]},
+                )
+                if "z_eligible_intensity" in fs_fit.params.index:
+                    fs_ci = fs_fit.conf_int(alpha=0.05).loc["z_eligible_intensity"]
+                    first_stage_rows.append(
+                        {
+                            "outcome": outcome,
+                            "model": "IV first stage",
+                            "fe_type": fe_label,
+                            "term": "z_eligible_intensity",
+                            "coef": float(fs_fit.params["z_eligible_intensity"]),
+                            "std_err": float(fs_fit.bse["z_eligible_intensity"]),
+                            "t_stat": float(fs_fit.tvalues["z_eligible_intensity"]),
+                            "p_value": float(fs_fit.pvalues["z_eligible_intensity"]),
+                            "ci_95_lower": float(fs_ci.iloc[0]),
+                            "ci_95_upper": float(fs_ci.iloc[1]),
+                            "n_obs": int(sample.shape[0]),
+                            "n_regions": int(sample["nuts2_id"].nunique()),
+                            "first_stage_f_stat": first_stage_f,
+                        }
+                    )
+
+    iv_table = pd.DataFrame(iv_rows)
+    first_stage_table = pd.DataFrame(first_stage_rows)
+
+    if iv_table.empty:
+        iv_table = pd.DataFrame(
+            columns=[
+                "outcome",
+                "model",
+                "fe_type",
+                "clustering",
+                "term",
+                "coef",
+                "std_err",
+                "t_stat",
+                "p_value",
+                "ci_95_lower",
+                "ci_95_upper",
+                "first_stage_f_stat",
+                "n_obs",
+                "n_regions",
+                "sample_year_min",
+                "sample_year_max",
+                "instrument",
+                "formula",
+            ]
+        )
+    if first_stage_table.empty:
+        first_stage_table = pd.DataFrame(
+            columns=[
+                "outcome",
+                "model",
+                "fe_type",
+                "term",
+                "coef",
+                "std_err",
+                "t_stat",
+                "p_value",
+                "ci_95_lower",
+                "ci_95_upper",
+                "n_obs",
+                "n_regions",
+                "first_stage_f_stat",
+            ]
+        )
+
+    if not iv_table.empty:
+        iv_table = iv_table.sort_values(["outcome", "fe_type", "clustering"]).reset_index(drop=True)
+    if not first_stage_table.empty:
+        first_stage_table = first_stage_table.sort_values(["outcome", "fe_type"]).reset_index(drop=True)
+
+    return iv_table, first_stage_table
+
+
+def build_model_comparison_v3(
+    headline_outcome: str,
+    twfe_main: pd.DataFrame,
+    dl_lags: pd.DataFrame,
+    rd_main: pd.DataFrame,
+    iv_table: pd.DataFrame,
+) -> pd.DataFrame:
+    rows: List[pd.DataFrame] = []
+
+    twfe_subset = twfe_main[
+        (twfe_main["outcome"] == headline_outcome)
+        & (twfe_main["term"] == "erdf_eur_pc_l1")
+        & (twfe_main["model"].isin(["Model A", "Model B"]))
+    ].copy()
+    if not twfe_subset.empty:
+        twfe_subset["estimator_family"] = "TWFE"
+        twfe_subset["window"] = "panel"
+        rows.append(
+            twfe_subset[
+                [
+                    "estimator_family",
+                    "model",
+                    "outcome",
+                    "term",
+                    "coef",
+                    "std_err",
+                    "p_value",
+                    "ci_95_lower",
+                    "ci_95_upper",
+                    "n_obs",
+                    "n_regions",
+                    "fe_type",
+                    "clustering",
+                    "window",
+                ]
+            ]
+        )
+
+    dl_subset = dl_lags[
+        (dl_lags["outcome"] == headline_outcome)
+        & (dl_lags["model"] == "Model C")
+        & (dl_lags["term"] == "erdf_eur_pc_l1")
+    ].copy()
+    if not dl_subset.empty:
+        dl_subset["estimator_family"] = "TWFE-dynamic"
+        dl_subset["window"] = "panel"
+        rows.append(
+            dl_subset[
+                [
+                    "estimator_family",
+                    "model",
+                    "outcome",
+                    "term",
+                    "coef",
+                    "std_err",
+                    "p_value",
+                    "ci_95_lower",
+                    "ci_95_upper",
+                    "n_obs",
+                    "n_regions",
+                    "fe_type",
+                    "clustering",
+                    "window",
+                ]
+            ]
+        )
+
+    if not rd_main.empty:
+        rd_subset = rd_main[
+            (rd_main["outcome"] == f"{headline_outcome}_post_2016_2020")
+            & (rd_main["bandwidth"] == 10.0)
+        ].copy()
+        if not rd_subset.empty:
+            rd_subset["estimator_family"] = "RD"
+            rd_subset["model"] = rd_subset["estimator"] + " (bw=10)"
+            rd_subset["term"] = rd_subset["treatment_var"]
+            rd_subset["fe_type"] = "local_linear"
+            rd_subset["clustering"] = "HC1"
+            rows.append(
+                rd_subset[
+                    [
+                        "estimator_family",
+                        "model",
+                        "outcome",
+                        "term",
+                        "coef",
+                        "std_err",
+                        "p_value",
+                        "ci_95_lower",
+                        "ci_95_upper",
+                        "n_obs",
+                        "n_left",
+                        "n_right",
+                        "fe_type",
+                        "clustering",
+                        "window",
+                    ]
+                ].rename(columns={"n_left": "n_regions", "n_right": "n_regions_right"})
+            )
+
+    if not iv_table.empty:
+        iv_subset = iv_table[
+            (iv_table["outcome"] == headline_outcome)
+            & (iv_table["clustering"] == "nuts2")
+        ].copy()
+        if not iv_subset.empty:
+            iv_subset["estimator_family"] = "IV"
+            iv_subset["window"] = "panel_post2014_instrument"
+            rows.append(
+                iv_subset[
+                    [
+                        "estimator_family",
+                        "model",
+                        "outcome",
+                        "term",
+                        "coef",
+                        "std_err",
+                        "p_value",
+                        "ci_95_lower",
+                        "ci_95_upper",
+                        "n_obs",
+                        "n_regions",
+                        "fe_type",
+                        "clustering",
+                        "window",
+                        "first_stage_f_stat",
+                    ]
+                ]
+            )
+
+    if not rows:
+        return pd.DataFrame()
+
+    comparison = pd.concat(rows, ignore_index=True, sort=False)
+    return comparison.sort_values(["estimator_family", "model"]).reset_index(drop=True)
+
+
 def create_html_report(
     headline_outcome: str,
     overview: pd.DataFrame,
@@ -1075,12 +1904,491 @@ def create_html_report(
     return manifest
 
 
+def _style_table_html(df: pd.DataFrame, max_rows: int = 18) -> str:
+    if df.empty:
+        return "<p class='muted'>No rows available for this section.</p>"
+    preview = df.head(max_rows).copy()
+    return preview.to_html(index=False, classes="styled-table", border=0)
+
+
+def _plotly_block(fig: go.Figure, include_js: bool) -> str:
+    return to_html(
+        fig,
+        full_html=False,
+        include_plotlyjs="inline" if include_js else False,
+        config={"responsive": True, "displayModeBar": False},
+    )
+
+
+def create_html_report_v3(
+    headline_outcome: str,
+    overview: pd.DataFrame,
+    key_missingness: pd.DataFrame,
+    model_comparison: pd.DataFrame,
+    rd_main: pd.DataFrame,
+    rd_sensitivity: pd.DataFrame,
+    rd_placebo: pd.DataFrame,
+    iv_results: pd.DataFrame,
+    iv_first_stage: pd.DataFrame,
+    robustness: pd.DataFrame,
+    sigma: pd.DataFrame,
+    leads_lags: pd.DataFrame,
+) -> Dict[str, List[str]]:
+    kpi_n_regions = int(overview.loc[overview["metric"] == "n_regions", "value"].iloc[0])
+    kpi_min_year = int(overview.loc[overview["metric"] == "min_year", "value"].iloc[0])
+    kpi_max_year = int(overview.loc[overview["metric"] == "max_year", "value"].iloc[0])
+
+    headline_iv = iv_results[
+        (iv_results["outcome"] == headline_outcome)
+        & (iv_results["fe_type"] == "year")
+        & (iv_results["clustering"] == "nuts2")
+    ]
+    if headline_iv.empty:
+        headline_iv = iv_results.head(1)
+
+    if not headline_iv.empty:
+        h_row = headline_iv.iloc[0]
+        kpi_headline_coef = float(h_row["coef"])
+        kpi_headline_p = float(h_row["p_value"])
+        kpi_headline_f = float(h_row["first_stage_f_stat"])
+    else:
+        kpi_headline_coef = np.nan
+        kpi_headline_p = np.nan
+        kpi_headline_f = np.nan
+
+    # Interactive charts
+    include_js = True
+    chart_blocks: Dict[str, str] = {}
+
+    sigma_plot_df = sigma.dropna(subset=["year"]).copy().sort_values("year")
+    fig_sigma = go.Figure()
+    for column, label, color in [
+        ("sigma_log_gdp_real", "Sigma real", "#0f766e"),
+        ("sigma_log_gdp_pps", "Sigma PPS", "#c2410c"),
+        ("sigma_log_gdp_nominal", "Sigma nominal", "#334155"),
+    ]:
+        if column in sigma_plot_df.columns:
+            series = pd.to_numeric(sigma_plot_df[column], errors="coerce")
+            if series.notna().any():
+                fig_sigma.add_trace(
+                    go.Scatter(
+                        x=sigma_plot_df["year"],
+                        y=series,
+                        mode="lines+markers",
+                        name=label,
+                        line={"width": 2, "color": color},
+                    )
+                )
+    fig_sigma.add_vrect(
+        x0=2014,
+        x1=2020,
+        fillcolor="rgba(15,118,110,0.12)",
+        line_width=0,
+        annotation_text="2014-2020",
+        annotation_position="top left",
+    )
+    fig_sigma.update_layout(
+        title="Sigma convergence",
+        xaxis_title="Year",
+        yaxis_title="Sigma(log GDP per capita)",
+        template="plotly_white",
+        margin={"l": 40, "r": 20, "t": 50, "b": 40},
+        height=380,
+    )
+    chart_blocks["sigma"] = _plotly_block(fig_sigma, include_js=include_js)
+    include_js = False
+
+    if not model_comparison.empty:
+        comp = model_comparison.copy()
+        comp["label"] = comp["estimator_family"].astype(str) + " | " + comp["model"].astype(str)
+        comp["err"] = 1.96 * pd.to_numeric(comp["std_err"], errors="coerce")
+        fig_comp = px.scatter(
+            comp,
+            x="coef",
+            y="label",
+            color="estimator_family",
+            error_x="err",
+            hover_data=["p_value", "outcome", "window"],
+            color_discrete_sequence=["#0f766e", "#c2410c", "#334155", "#be123c"],
+        )
+        fig_comp.add_vline(x=0.0, line_dash="dash", line_color="#64748b")
+        fig_comp.update_layout(
+            title="Model comparison (headline outcome)",
+            xaxis_title="Coefficient estimate",
+            yaxis_title="Estimator/model",
+            template="plotly_white",
+            margin={"l": 20, "r": 20, "t": 50, "b": 40},
+            height=420,
+            legend_title_text="Estimator",
+        )
+        chart_blocks["comparison"] = _plotly_block(fig_comp, include_js=include_js)
+    else:
+        chart_blocks["comparison"] = "<p class='muted'>Model comparison unavailable.</p>"
+
+    if not rd_sensitivity.empty:
+        rd_plot = rd_sensitivity.copy()
+        rd_plot["label"] = rd_plot["outcome"].astype(str) + " | " + rd_plot["window"].astype(str)
+        rd_plot["err"] = 1.96 * pd.to_numeric(rd_plot["std_err"], errors="coerce")
+        fig_rd_bw = px.line(
+            rd_plot,
+            x="bandwidth",
+            y="coef",
+            color="label",
+            markers=True,
+            error_y="err",
+            color_discrete_sequence=px.colors.qualitative.Dark24,
+        )
+        fig_rd_bw.add_hline(y=0.0, line_dash="dash", line_color="#64748b")
+        fig_rd_bw.update_layout(
+            title="RD bandwidth sensitivity",
+            xaxis_title="Bandwidth",
+            yaxis_title="Estimated jump at 75 threshold",
+            template="plotly_white",
+            margin={"l": 40, "r": 20, "t": 50, "b": 40},
+            height=380,
+        )
+        chart_blocks["rd_bw"] = _plotly_block(fig_rd_bw, include_js=include_js)
+    else:
+        chart_blocks["rd_bw"] = "<p class='muted'>RD sensitivity unavailable.</p>"
+
+    if not iv_first_stage.empty:
+        fs = iv_first_stage.copy()
+        fs["label"] = fs["outcome"] + " | " + fs["fe_type"]
+        fs["err"] = 1.96 * pd.to_numeric(fs["std_err"], errors="coerce")
+        fig_fs = px.bar(
+            fs,
+            x="label",
+            y="coef",
+            error_y="err",
+            color="outcome",
+            color_discrete_sequence=["#0f766e", "#c2410c", "#334155"],
+        )
+        fig_fs.add_hline(y=0.0, line_dash="dash", line_color="#64748b")
+        fig_fs.update_layout(
+            title="First-stage coefficient on eligibility × post",
+            xaxis_title="Outcome and FE",
+            yaxis_title="First-stage coefficient",
+            template="plotly_white",
+            margin={"l": 40, "r": 20, "t": 50, "b": 60},
+            height=380,
+            legend_title_text="Outcome",
+        )
+        chart_blocks["first_stage"] = _plotly_block(fig_fs, include_js=include_js)
+    else:
+        chart_blocks["first_stage"] = "<p class='muted'>First-stage diagnostics unavailable.</p>"
+
+    if not leads_lags.empty:
+        ll = leads_lags.copy().sort_values("horizon")
+        fig_ll = go.Figure()
+        fig_ll.add_trace(
+            go.Scatter(
+                x=ll["horizon"],
+                y=ll["coef"],
+                mode="lines+markers",
+                name="Leads/lags",
+                line={"color": "#be123c", "width": 2},
+                error_y={
+                    "type": "data",
+                    "array": 1.96 * pd.to_numeric(ll["std_err"], errors="coerce"),
+                    "visible": True,
+                },
+            )
+        )
+        fig_ll.add_hline(y=0.0, line_dash="dash", line_color="#64748b")
+        fig_ll.add_vline(x=0.0, line_dash="dot", line_color="#64748b")
+        fig_ll.update_layout(
+            title="Placebo leads/lags",
+            xaxis_title="Horizon (negative = lead)",
+            yaxis_title="Coefficient",
+            template="plotly_white",
+            margin={"l": 40, "r": 20, "t": 50, "b": 40},
+            height=360,
+        )
+        chart_blocks["placebo"] = _plotly_block(fig_ll, include_js=include_js)
+    else:
+        chart_blocks["placebo"] = "<p class='muted'>Leads/lags placebo unavailable.</p>"
+
+    html = f"""
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>EU Cohesion V3 Causal Report</title>
+  <style>
+    :root {{
+      --ink: #0f172a;
+      --muted: #475569;
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --line: #e2e8f0;
+      --accent: #0f766e;
+      --accent-2: #c2410c;
+      --accent-3: #be123c;
+      --shadow: 0 12px 30px rgba(2, 6, 23, 0.08);
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      color: var(--ink);
+      background: radial-gradient(circle at 12% 0%, #d1fae5 0%, #f8fafc 35%) no-repeat;
+      font-family: "Avenir Next", "Trebuchet MS", "Segoe UI", sans-serif;
+      line-height: 1.45;
+    }}
+    .shell {{
+      max-width: 1260px;
+      margin: 0 auto;
+      padding: 24px 24px 48px;
+    }}
+    .hero {{
+      background: linear-gradient(120deg, #0f766e, #14532d);
+      color: #f8fafc;
+      border-radius: 18px;
+      padding: 28px 30px;
+      box-shadow: var(--shadow);
+      margin-bottom: 18px;
+    }}
+    .hero h1 {{
+      margin: 0 0 8px;
+      font-family: "Palatino Linotype", "Book Antiqua", Palatino, serif;
+      font-size: 2rem;
+      letter-spacing: 0.2px;
+    }}
+    .hero p {{ margin: 6px 0; opacity: 0.95; }}
+    .topnav {{
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      background: rgba(248, 250, 252, 0.95);
+      backdrop-filter: blur(8px);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 8px 12px;
+      margin-bottom: 18px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }}
+    .topnav a {{
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 0.92rem;
+      padding: 4px 8px;
+      border-radius: 8px;
+    }}
+    .topnav a:hover {{ background: #e2e8f0; color: var(--ink); }}
+    .kpis {{
+      display: grid;
+      grid-template-columns: repeat(5, minmax(150px, 1fr));
+      gap: 12px;
+      margin: 14px 0 22px;
+    }}
+    .kpi {{
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px 14px;
+      box-shadow: var(--shadow);
+    }}
+    .kpi .label {{ color: var(--muted); font-size: 0.84rem; margin-bottom: 6px; }}
+    .kpi .value {{ font-size: 1.2rem; font-weight: 700; }}
+    .section {{
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+      padding: 18px;
+      margin-bottom: 16px;
+    }}
+    .section h2 {{
+      margin: 0 0 12px;
+      font-size: 1.2rem;
+      font-family: "Palatino Linotype", "Book Antiqua", Palatino, serif;
+    }}
+    .muted {{ color: var(--muted); font-size: 0.9rem; }}
+    .grid-2 {{
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }}
+    .styled-table {{
+      border-collapse: collapse;
+      width: 100%;
+      font-size: 0.85rem;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      overflow: hidden;
+    }}
+    .styled-table th, .styled-table td {{
+      border-bottom: 1px solid var(--line);
+      padding: 7px 9px;
+      text-align: left;
+      vertical-align: top;
+    }}
+    .styled-table th {{
+      background: #ecfeff;
+      font-weight: 600;
+    }}
+    .img-card {{
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px;
+      background: #ffffff;
+    }}
+    .img-card img {{
+      width: 100%;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+    }}
+    @media (max-width: 980px) {{
+      .kpis {{ grid-template-columns: repeat(2, minmax(130px, 1fr)); }}
+      .grid-2 {{ grid-template-columns: 1fr; }}
+    }}
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="hero">
+      <h1>EU Cohesion Policy V3: Causal Identification Report</h1>
+      <p>Headline estimator: panel IV (eligibility × post instrument) for <strong>{headline_outcome}</strong>.</p>
+      <p>Benchmarks: TWFE models A/B/C, RD around the 75 threshold, placebo leads/lags, and convergence diagnostics.</p>
+    </header>
+
+    <nav class="topnav">
+      <a href="#dataset">Dataset</a>
+      <a href="#headline">Headline Results</a>
+      <a href="#rd">RD</a>
+      <a href="#iv">IV Diagnostics</a>
+      <a href="#convergence">Convergence</a>
+      <a href="#robustness">Robustness</a>
+      <a href="#limits">Limitations</a>
+    </nav>
+
+    <section class="kpis">
+      <div class="kpi"><div class="label">Regions</div><div class="value">{kpi_n_regions}</div></div>
+      <div class="kpi"><div class="label">Year range</div><div class="value">{kpi_min_year}-{kpi_max_year}</div></div>
+      <div class="kpi"><div class="label">Headline IV coef</div><div class="value">{kpi_headline_coef:.4f}</div></div>
+      <div class="kpi"><div class="label">Headline IV p-value</div><div class="value">{kpi_headline_p:.4f}</div></div>
+      <div class="kpi"><div class="label">First-stage F</div><div class="value">{kpi_headline_f:.2f}</div></div>
+    </section>
+
+    <section class="section" id="dataset">
+      <h2>Dataset Coverage and Missingness</h2>
+      <div class="grid-2">
+        <div>{_style_table_html(overview, max_rows=10)}</div>
+        <div>{_style_table_html(key_missingness.sort_values("missing_rate", ascending=False), max_rows=15)}</div>
+      </div>
+    </section>
+
+    <section class="section" id="headline">
+      <h2>Headline Causal Results</h2>
+      <p class="muted">IV and RD are foregrounded; TWFE is retained as benchmark.</p>
+      {chart_blocks["comparison"]}
+      <div class="grid-2">
+        <div>{_style_table_html(model_comparison, max_rows=18)}</div>
+        <div>{_style_table_html(iv_results, max_rows=18)}</div>
+      </div>
+    </section>
+
+    <section class="section" id="rd">
+      <h2>Regression Discontinuity Around 75% Eligibility Cutoff</h2>
+      {chart_blocks["rd_bw"]}
+      <div class="grid-2">
+        <div>{_style_table_html(rd_main, max_rows=16)}</div>
+        <div>{_style_table_html(rd_placebo, max_rows=12)}</div>
+      </div>
+      <div class="grid-2" style="margin-top: 12px;">
+        <div class="img-card">
+          <p class="muted">Binned scatter (PNG)</p>
+          <img src="figures/{FIGURE_PATHS_V3['rd_binned'].name}" alt="RD binned scatter" />
+        </div>
+        <div class="img-card">
+          <p class="muted">Bandwidth sensitivity (PNG)</p>
+          <img src="figures/{FIGURE_PATHS_V3['rd_bandwidth'].name}" alt="RD bandwidth sensitivity" />
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="iv">
+      <h2>IV Diagnostics</h2>
+      {chart_blocks["first_stage"]}
+      <div class="grid-2">
+        <div>{_style_table_html(iv_first_stage, max_rows=16)}</div>
+        <div>{_style_table_html(iv_results, max_rows=16)}</div>
+      </div>
+    </section>
+
+    <section class="section" id="convergence">
+      <h2>Convergence Evidence</h2>
+      {chart_blocks["sigma"]}
+      <div class="grid-2">
+        <div class="img-card">
+          <p class="muted">Placebo leads/lags (interactive)</p>
+          {chart_blocks["placebo"]}
+        </div>
+        <div class="img-card">
+          <p class="muted">Placebo leads/lags (PNG fallback)</p>
+          <img src="figures/{FIGURE_PATHS_V3['leads_lags'].name}" alt="Leads lags placebo" />
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="robustness">
+      <h2>Robustness Overview</h2>
+      {_style_table_html(robustness, max_rows=18)}
+    </section>
+
+    <section class="section" id="limits">
+      <h2>Limitations</h2>
+      <ul>
+        <li>Real GDP per capita is reconstructed from regional volume indices anchored to nominal levels.</li>
+        <li>Eligibility mapping is rule-based and may not align perfectly with all NUTS revision edge cases.</li>
+        <li>RD sample size around threshold is finite; IV assumptions still require caution.</li>
+      </ul>
+      <p class="muted">Generated by scripts/run_models.py. This file is standalone and can be opened directly.</p>
+    </section>
+  </div>
+</body>
+</html>
+"""
+
+    REPORT_HTML_PATH.write_text(html, encoding="utf-8")
+
+    manifest = {
+        "tables": [
+            str(BASE_TABLE_PATHS["panel_overview"]),
+            str(BASE_TABLE_PATHS["panel_key_missingness"]),
+            str(TABLE_PATHS_V3["twfe_main"]),
+            str(TABLE_PATHS_V3["dl_lags"]),
+            str(TABLE_PATHS_V3["rd_main"]),
+            str(TABLE_PATHS_V3["rd_placebo"]),
+            str(TABLE_PATHS_V3["iv_2sls"]),
+            str(TABLE_PATHS_V3["iv_first_stage"]),
+            str(TABLE_PATHS_V3["model_summary"]),
+            str(TABLE_PATHS_V3["robust_outliers"]),
+            str(TABLE_PATHS_V3["robust_balanced"]),
+            str(TABLE_PATHS_V3["robust_scaling"]),
+        ],
+        "figures": [
+            str(FIGURE_PATHS_V3["rd_binned"]),
+            str(FIGURE_PATHS_V3["rd_bandwidth"]),
+            str(FIGURE_PATHS_V3["leads_lags"]),
+            str(FIGURE_PATHS_V3["sigma"]),
+            str(FIGURE_PATHS_V3["dynamic_lag"]),
+            str(FIGURE_PATHS_V3["beta_partial"]),
+        ],
+        "report_html": str(REPORT_HTML_PATH),
+    }
+    REPORT_MANIFEST_PATH.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    return manifest
+
+
 def create_report_notebook(headline_outcome: str) -> None:
     nb = nbformat.v4.new_notebook()
 
     cells = [
         nbformat.v4.new_markdown_cell(
-            "# EU Cohesion V2 Report\n"
+            "# EU Cohesion V3 Report\n"
             f"Headline outcome: **{headline_outcome}**"
         ),
         nbformat.v4.new_code_cell(
@@ -1090,10 +2398,10 @@ def create_report_notebook(headline_outcome: str) -> None:
             "root = Path('..').resolve()\n"
             "overview = pd.read_csv(root / 'outputs/tables/panel_master_overview.csv')\n"
             "missingness = pd.read_csv(root / 'outputs/tables/panel_master_key_missingness.csv')\n"
-            "twfe = pd.read_csv(root / 'outputs/tables/twfe_main_results_v2.csv')\n"
-            "dl = pd.read_csv(root / 'outputs/tables/dl_lags_results_v2.csv')\n"
-            "summary = pd.read_csv(root / 'outputs/tables/model_comparison_summary_v2.csv')\n"
-            "beta = pd.read_csv(root / 'outputs/tables/beta_convergence_results_v2.csv')\n"
+            "twfe = pd.read_csv(root / 'outputs/tables/twfe_main_results_v3.csv')\n"
+            "dl = pd.read_csv(root / 'outputs/tables/dl_lags_results_v3.csv')\n"
+            "summary = pd.read_csv(root / 'outputs/tables/model_comparison_summary_v3.csv')\n"
+            "beta = pd.read_csv(root / 'outputs/tables/beta_convergence_results_v3.csv')\n"
             "display(overview)\n"
             "display(missingness.sort_values('missing_rate', ascending=False))"
         ),
@@ -1101,16 +2409,22 @@ def create_report_notebook(headline_outcome: str) -> None:
         nbformat.v4.new_code_cell("display(twfe)\ndisplay(dl)\ndisplay(summary)"),
         nbformat.v4.new_markdown_cell("## Beta + Heterogeneity"),
         nbformat.v4.new_code_cell(
-            "hetero = pd.read_csv(root / 'outputs/tables/heterogeneity_by_category_v2.csv')\n"
+            "hetero = pd.read_csv(root / 'outputs/tables/heterogeneity_by_category_v3.csv')\n"
+            "rd = pd.read_csv(root / 'outputs/tables/rd_main_results_v3.csv')\n"
+            "iv = pd.read_csv(root / 'outputs/tables/iv_2sls_results_v3.csv')\n"
             "display(beta)\n"
+            "display(rd)\n"
+            "display(iv)\n"
             "display(hetero)"
         ),
         nbformat.v4.new_markdown_cell("## Figures"),
         nbformat.v4.new_code_cell(
-            "display(Image(filename=str(root / 'outputs/figures/sigma_convergence_v2.png')))\n"
-            "display(Image(filename=str(root / 'outputs/figures/dynamic_lag_response_v2.png')))\n"
-            "display(Image(filename=str(root / 'outputs/figures/leads_lags_placebo_v2.png')))\n"
-            "display(Image(filename=str(root / 'outputs/figures/beta_convergence_partial_v2.png')))"
+            "display(Image(filename=str(root / 'outputs/figures/sigma_convergence_v3.png')))\n"
+            "display(Image(filename=str(root / 'outputs/figures/dynamic_lag_response_v3.png')))\n"
+            "display(Image(filename=str(root / 'outputs/figures/leads_lags_placebo_v3.png')))\n"
+            "display(Image(filename=str(root / 'outputs/figures/beta_convergence_partial_v3.png')))\n"
+            "display(Image(filename=str(root / 'outputs/figures/rd_binned_scatter_v3.png')))\n"
+            "display(Image(filename=str(root / 'outputs/figures/rd_bandwidth_sensitivity_v3.png')))"
         ),
         nbformat.v4.new_markdown_cell(
             "## Limitations\n"
@@ -1145,60 +2459,99 @@ def run_models_pipeline() -> Dict[str, Path]:
     _ensure_output_dirs()
 
     panel, sigma = load_analysis_inputs()
+    running, exposure = load_identification_inputs()
     controls = get_available_controls(panel)
     panel = prepare_analysis_panel(panel)
+
+    if "r_value" not in panel.columns or panel["r_value"].isna().all():
+        panel = panel.merge(
+            running[["nuts2_id", "r_value", "eligible_lt75", "ref_years_used"]],
+            on="nuts2_id",
+            how="left",
+            validate="many_to_one",
+        )
+    if "erdf_eur_pc_cum_2014_2020" not in panel.columns or panel["erdf_eur_pc_cum_2014_2020"].isna().all():
+        panel = panel.merge(
+            exposure,
+            on=["nuts2_id", "country"],
+            how="left",
+            validate="many_to_one",
+        )
+
+    identification_required = [
+        "r_value",
+        "eligible_lt75",
+        "erdf_eur_pc_cum_2014_2020",
+        "erdf_eur_pc_cum_2015_2020",
+    ]
+    _validate_columns(
+        panel,
+        identification_required,
+        config.PANEL_MASTER_PARQUET,
+        "scripts/build_dataset.py (src/pipeline.py)",
+    )
 
     if panel["category_2014_2020"].notna().sum() == 0:
         raise ValueError(
             "category_2014_2020 is all missing in panel_master.parquet. "
-            "This should come from eligibility_categories_2014_2020.csv in the V2 build pipeline."
+            "This should come from eligibility_categories_2014_2020.csv in scripts/build_dataset.py."
+        )
+    if panel["eligible_lt75"].notna().sum() == 0:
+        raise ValueError(
+            "eligible_lt75 is all missing in panel_master.parquet. "
+            "This should come from running_variable_eligibility.csv in scripts/build_dataset.py."
         )
 
     save_panel_schema_and_overview(panel, controls_used=controls)
 
     headline_outcome = _choose_headline_outcome(panel)
     outcomes = _available_growth_outcomes(panel, headline_outcome)
+    pps_outcome = (
+        "gdp_pc_pps_growth"
+        if "gdp_pc_pps_growth" in outcomes and headline_outcome != "gdp_pc_pps_growth"
+        else None
+    )
 
     LOGGER.info("Headline outcome: %s", headline_outcome)
     LOGGER.info("Outcomes estimated: %s", ", ".join(outcomes))
 
     twfe_main, dl_lags, core_runs = run_core_models_by_outcome(panel, outcomes, controls)
-    _write_csv(twfe_main, TABLE_PATHS_V2["twfe_main"])
-    _write_csv(dl_lags, TABLE_PATHS_V2["dl_lags"])
+    _write_csv(twfe_main, TABLE_PATHS_V3["twfe_main"])
+    _write_csv(dl_lags, TABLE_PATHS_V3["dl_lags"])
 
     dynamic_table, placebo_table, dynamic_runs = run_dynamic_and_placebo(
         panel=panel,
         headline_outcome=headline_outcome,
         controls=controls,
     )
-    _write_csv(dynamic_table, TABLE_PATHS_V2["dynamic_lag"])
-    _write_csv(placebo_table, TABLE_PATHS_V2["leads_lags"])
+    _write_csv(dynamic_table, TABLE_PATHS_V3["dynamic_lag"])
+    _write_csv(placebo_table, TABLE_PATHS_V3["leads_lags"])
 
     viz.plot_dynamic_lag_response(
         dynamic_table,
-        FIGURE_PATHS_V2["dynamic_lag"],
+        FIGURE_PATHS_V3["dynamic_lag"],
         title=f"Dynamic lag response ({headline_outcome})",
     )
     viz.plot_leads_lags_placebo(
         placebo_table,
-        FIGURE_PATHS_V2["leads_lags"],
+        FIGURE_PATHS_V3["leads_lags"],
         title=f"Placebo leads/lags ({headline_outcome})",
     )
-    viz.plot_sigma_convergence_multi(sigma, FIGURE_PATHS_V2["sigma"])
+    viz.plot_sigma_convergence_multi(sigma, FIGURE_PATHS_V3["sigma"])
 
     beta_table, heterogeneity_table, beta_partial, beta_runs = run_beta_and_heterogeneity(
         panel=panel,
         controls=controls,
         headline_outcome=headline_outcome,
     )
-    _write_csv(beta_table, TABLE_PATHS_V2["beta"])
-    _write_csv(heterogeneity_table, TABLE_PATHS_V2["heterogeneity"])
+    _write_csv(beta_table, TABLE_PATHS_V3["beta"])
+    _write_csv(heterogeneity_table, TABLE_PATHS_V3["heterogeneity"])
 
     if beta_partial is None:
         beta_partial = pd.DataFrame(columns=["percentile", "x_value", "marginal_effect", "ci_lower", "ci_upper"])
     viz.plot_beta_marginal_effect(
         beta_partial,
-        FIGURE_PATHS_V2["beta_partial"],
+        FIGURE_PATHS_V3["beta_partial"],
         title=f"Marginal ERDF effect by initial income ({headline_outcome})",
     )
 
@@ -1212,9 +2565,55 @@ def run_models_pipeline() -> Dict[str, Path]:
         robustness_runs,
     ) = run_robustness(panel, controls, headline_outcome)
 
-    _write_csv(robust_outliers, TABLE_PATHS_V2["robust_outliers"])
-    _write_csv(robust_balanced, TABLE_PATHS_V2["robust_balanced"])
-    _write_csv(robust_scaling, TABLE_PATHS_V2["robust_scaling"])
+    _write_csv(robust_outliers, TABLE_PATHS_V3["robust_outliers"])
+    _write_csv(robust_balanced, TABLE_PATHS_V3["robust_balanced"])
+    _write_csv(robust_scaling, TABLE_PATHS_V3["robust_scaling"])
+
+    region_ident_df, rd_main, rd_sensitivity, rd_placebo = run_rd_analysis(
+        panel=panel,
+        running=running,
+        exposure=exposure,
+        headline_outcome=headline_outcome,
+        pps_outcome=pps_outcome,
+        controls=controls,
+    )
+    _write_csv(rd_main, TABLE_PATHS_V3["rd_main"])
+    _write_csv(rd_placebo, TABLE_PATHS_V3["rd_placebo"])
+    rd_sensitivity_path = OUTPUT_TABLES_DIR / "rd_bandwidth_sensitivity_v3.csv"
+    _write_csv(rd_sensitivity, rd_sensitivity_path)
+
+    rd_outcome_col = f"{headline_outcome}_post_2016_2020"
+    if rd_outcome_col not in region_ident_df.columns or region_ident_df[rd_outcome_col].notna().sum() == 0:
+        fallback_cols = [c for c in region_ident_df.columns if c.endswith("post_2016_2020")]
+        if not fallback_cols:
+            raise ValueError(
+                "Could not find any post-treatment RD outcome column for plotting. "
+                "Expected columns ending with '_post_2016_2020' from run_rd_analysis."
+            )
+        rd_outcome_col = fallback_cols[0]
+
+    viz.plot_rd_binned_scatter(
+        region_ident_df,
+        outcome_col=rd_outcome_col,
+        output_path=FIGURE_PATHS_V3["rd_binned"],
+        cutoff=75.0,
+        bandwidth=15.0,
+        title=f"RD binned scatter ({rd_outcome_col})",
+    )
+    viz.plot_rd_bandwidth_sensitivity(
+        rd_sensitivity,
+        output_path=FIGURE_PATHS_V3["rd_bandwidth"],
+        title="RD bandwidth sensitivity (sharp RD)",
+    )
+
+    iv_results, iv_first_stage = run_iv_2sls_panel(
+        panel=panel,
+        headline_outcome=headline_outcome,
+        pps_outcome=pps_outcome,
+        controls=controls,
+    )
+    _write_csv(iv_results, TABLE_PATHS_V3["iv_2sls"])
+    _write_csv(iv_first_stage, TABLE_PATHS_V3["iv_first_stage"])
 
     all_runs = [*core_runs, *dynamic_runs, *beta_runs, *robustness_runs]
 
@@ -1242,53 +2641,55 @@ def run_models_pipeline() -> Dict[str, Path]:
         balanced_window=balanced_window,
         balanced_regions=balanced_regions,
     )
-    _write_csv(model_summary, TABLE_PATHS_V2["model_summary"])
+    model_summary_legacy_path = OUTPUT_TABLES_DIR / "model_comparison_summary_twfe_legacy_v3.csv"
+    _write_csv(model_summary, model_summary_legacy_path)
+
+    model_comparison_v3 = build_model_comparison_v3(
+        headline_outcome=headline_outcome,
+        twfe_main=twfe_main,
+        dl_lags=dl_lags,
+        rd_main=rd_main,
+        iv_table=iv_results,
+    )
+    _write_csv(model_comparison_v3, TABLE_PATHS_V3["model_summary"])
 
     overview = pd.read_csv(BASE_TABLE_PATHS["panel_overview"])
     missingness = pd.read_csv(BASE_TABLE_PATHS["panel_key_missingness"])
 
-    headline_core = pd.concat(
+    robustness_summary = pd.concat(
         [
-            twfe_main[(twfe_main["outcome"] == headline_outcome) & (twfe_main["model"].isin(["Model A", "Model B"]))],
-            dl_lags[(dl_lags["outcome"] == headline_outcome) & (dl_lags["model"] == "Model C")],
+            robust_outliers[robust_outliers["term"] == "erdf_eur_pc_l1"],
+            robust_balanced[robust_balanced["term"] == "erdf_eur_pc_l1"],
+            robust_scaling[robust_scaling["term"] == "erdf_k_eur_pc_l1"],
         ],
         ignore_index=True,
     )
 
-    robustness_summary = model_summary[
-        model_summary["model"].isin(
-            [
-                "Model A (outliers excluded)",
-                "Model B (outliers excluded)",
-                "Model A (balanced panel)",
-                "Model B (balanced panel)",
-                "Model A (scaled treatment)",
-                "Model B (scaled treatment)",
-            ]
-        )
-    ].copy()
-
-    beta_summary = beta_table[
-        beta_table["model"].isin(["Model D", "Model E", "Model E (country-year FE)"])
-    ].copy()
-
-    create_html_report(
+    create_html_report_v3(
         headline_outcome=headline_outcome,
         overview=overview,
-        missingness=missingness,
-        headline_models=headline_core,
-        robustness_summary=robustness_summary,
-        beta_summary=beta_summary,
+        key_missingness=missingness,
+        model_comparison=model_comparison_v3,
+        rd_main=rd_main,
+        rd_sensitivity=rd_sensitivity,
+        rd_placebo=rd_placebo,
+        iv_results=iv_results,
+        iv_first_stage=iv_first_stage,
+        robustness=robustness_summary,
+        sigma=sigma,
+        leads_lags=placebo_table,
     )
 
     create_report_notebook(headline_outcome)
 
-    LOGGER.info("V2 analysis completed. Tables and figures written under outputs/.")
+    LOGGER.info("V3 analysis completed. RD/IV, robustness, and standalone report written under outputs/.")
 
     outputs: Dict[str, Path] = {}
     outputs.update({f"table_base_{name}": path for name, path in BASE_TABLE_PATHS.items()})
-    outputs.update({f"table_v2_{name}": path for name, path in TABLE_PATHS_V2.items()})
-    outputs.update({f"figure_v2_{name}": path for name, path in FIGURE_PATHS_V2.items()})
+    outputs.update({f"table_v3_{name}": path for name, path in TABLE_PATHS_V3.items()})
+    outputs[f"table_v3_rd_sensitivity"] = rd_sensitivity_path
+    outputs[f"table_v3_twfe_legacy"] = model_summary_legacy_path
+    outputs.update({f"figure_v3_{name}": path for name, path in FIGURE_PATHS_V3.items()})
     outputs["report_html"] = REPORT_HTML_PATH
     outputs["report_manifest"] = REPORT_MANIFEST_PATH
     outputs["report_notebook"] = NOTEBOOK_PATH

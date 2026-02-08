@@ -113,11 +113,24 @@ def download_gdp_real_nuts2(output_path: Path) -> None:
     _write_csv(dataset, output_path)
 
 
-def build_eligibility_categories(output_path: Path) -> None:
-    ratio_dataset = _fetch_eurostat_dataset(
+def download_gdp_pc_pps_relative_eu_nuts2(output_path: Path) -> None:
+    dataset = _fetch_eurostat_dataset(
         dataset_code="nama_10r_2gdp",
         params={"freq": "A", "unit": "PPS_HAB_EU27_2020"},
     )
+    dataset = _standardize_raw_eurostat_output(dataset)
+    _write_csv(dataset, output_path)
+
+
+def build_eligibility_categories(output_path: Path) -> None:
+    ratio_path = config.DATA_RAW_DIR / config.RAW_FILES["gdp_pc_pps_rel_eu"]
+    if ratio_path.exists():
+        ratio_dataset = pd.read_csv(ratio_path, dtype=str)
+    else:
+        ratio_dataset = _fetch_eurostat_dataset(
+            dataset_code="nama_10r_2gdp",
+            params={"freq": "A", "unit": "PPS_HAB_EU27_2020"},
+        )
 
     ratio_dataset = ratio_dataset.rename(columns={"geo": "nuts2_id", "time": "year"})
     ratio_dataset["nuts2_id"] = ratio_dataset["nuts2_id"].astype("string").str.strip().str.upper()
@@ -175,6 +188,7 @@ def ensure_v2_raw_inputs(fetch_missing: bool = True) -> None:
     builders = {
         config.RAW_FILES["gdp_pc_pps"]: download_gdp_pc_pps_nuts2,
         config.RAW_FILES["gdp_real"]: download_gdp_real_nuts2,
+        config.RAW_FILES["gdp_pc_pps_rel_eu"]: download_gdp_pc_pps_relative_eu_nuts2,
         config.RAW_FILES["eligibility_categories"]: build_eligibility_categories,
     }
 
